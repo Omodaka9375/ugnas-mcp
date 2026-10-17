@@ -21,7 +21,9 @@
     "test:watch": "vitest",
     "smoke": "node scripts/smoke.mjs",
     "smoke:http": "node scripts/smoke-http.mjs",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "integration": "node scripts/integration-check.mjs",
+    "prepublishOnly": "pnpm typecheck && pnpm test && pnpm build && pnpm smoke"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.28.0",
