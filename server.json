@@ -1,0 +1,78 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.Omodaka9375/ugnas-mcp",
+  "description": "Generic MCP server for UGREEN NAS (UGOS) over SSH — 39 tools with dry-run safety.",
+  "repository": {
+    "url": "https://github.com/Omodaka9375/ugnas-mcp",
+    "source": "github"
+  },
+  "version": "0.1.2",
+  "packages": [
+    {
+      "registryType": "npm",
+      "identifier": "ugnas-mcp",
+      "version": "0.1.2",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "description": "Path to the config JSON (default: ~/.ugnas-mcp/config.json). See the README for the schema.",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false,
+          "name": "UGNAS_MCP_CONFIG"
+        },
+        {
+          "description": "NAS host, e.g. 192.168.1.50. Overrides the config file.",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false,
+          "name": "UGNAS_HOST"
+        },
+        {
+          "description": "SSH username. Overrides the config file.",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false,
+          "name": "UGNAS_USER"
+        },
+        {
+          "description": "Path to the SSH private key (alternative to UGNAS_PASSWORD).",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": true,
+          "name": "UGNAS_KEY_PATH"
+        },
+        {
+          "description": "SSH password (alternative to UGNAS_KEY_PATH).",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": true,
+          "name": "UGNAS_PASSWORD"
+        },
+        {
+          "description": "SSH port. Overrides the config file.",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false,
+          "name": "UGNAS_PORT"
+        },
+        {
+          "description": "Base directory for relative tool paths (default /volume1).",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false,
+          "name": "UGNAS_DEFAULT_SHARE"
+        },
+        {
+          "description": "Pinned SSH host key fingerprint (SHA256:...).",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false,
+          "name": "UGNAS_HOST_KEY_SHA256"
+        }
+      ]
+    }
+  ]
+}
