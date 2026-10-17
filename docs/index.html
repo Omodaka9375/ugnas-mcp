@@ -91,23 +91,36 @@
       color: var(--ink-2);
     }
     .masthead .dek strong { color: var(--ink); font-weight: 600; }
+    /* Spec strip: each spec is one unbreakable "LABEL value" pair on a
+       baseline; pairs wrap as whole units. No stacked dt/dd, no wrapping
+       inside a pair — so nothing can look ragged at any width. */
     .specs {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+      display: flex;
+      flex-wrap: wrap;
+      align-content: flex-start;
       border-top: 1px solid var(--rule);
       font-family: var(--mono);
+      margin: 0;
     }
     .specs > div {
-      padding: 14px 20px;
-      border-right: 1px solid var(--rule);
+      display: flex;
+      align-items: baseline;
+      gap: 9px;
+      padding: 13px 28px 13px 0;
+      margin-right: 28px;
       border-bottom: 1px solid var(--rule);
-      margin-bottom: -1px;
+      border-right: 1px solid var(--rule);
+      white-space: nowrap;
     }
-    .specs > div:last-child { border-right: 0; }
-    @media (max-width: 640px) {
-      .specs > div { border-right: 0; }
-      .specs > div:not(:first-child) { border-top: 0; }
+    .specs > div:last-child { border-right: 0; margin-right: 0; padding-right: 0; }
+    .specs dt {
+      font-size: 0.64rem;
+      font-weight: 700;
+      letter-spacing: 0.13em;
+      text-transform: uppercase;
+      color: var(--ink-4);
     }
+    .specs dd { margin: 0; font-size: 0.88rem; font-weight: 600; color: var(--ink); }
 
     /* ————— sections ————— */
     section { border-bottom: 1px solid var(--rule); }
