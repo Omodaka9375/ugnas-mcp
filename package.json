@@ -1,0 +1,38 @@
+{
+  "name": "ugnas-mcp",
+  "version": "0.1.0",
+  "description": "Generic MCP server for UGREEN NAS (UGOS) over SSH — Docker, files, backups, and networks with dry-run safety.",
+  "type": "module",
+  "bin": {
+    "ugnas-mcp": "dist/src/server.js"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsx src/server.ts",
+    "start": "node dist/src/server.js",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "smoke": "node scripts/smoke.mjs",
+    "smoke:http": "node scripts/smoke-http.mjs",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.28.0",
+    "ssh2": "^1.17.0",
+    "zod": "^4.1.12"
+  },
+  "devDependencies": {
+    "@types/node": "^24.5.2",
+    "@types/ssh2": "^1.15.5",
+    "tsx": "^4.20.6",
+    "typescript": "^6.0.2",
+    "vitest": "^4.1.2"
+  }
+}
