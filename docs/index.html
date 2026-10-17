@@ -570,11 +570,15 @@
 }</pre>
 
       <h3>Client wiring (stdio)</h3>
-      <pre class="code">{
+      <pre class="code"><span class="cm"># official package — no clone, no build</span>
+npx ugnas-mcp                <span class="cm"># or: npm i -g ugnas-mcp &amp;&amp; ugnas-mcp</span>
+
+<span class="cm"># client config</span>
+{
   "mcpServers": {
     "ugnas": {
-      "command": "node",
-      "args": ["/absolute/path/to/ugnas-mcp/dist/src/server.js"],
+      "command": "npx",
+      "args": ["-y", "ugnas-mcp"],
       "env": { "UGNAS_MCP_CONFIG": "/absolute/path/to/config.json" }
     }
   }
@@ -588,7 +592,7 @@
         the endpoint carries no authentication, so put a proxy with auth in front if
         you need it off-box.
       </p>
-      <pre class="code">UGNAS_HTTP_HOST=127.0.0.1 UGNAS_HTTP_PORT=4110 node dist/src/server.js
+      <pre class="code">UGNAS_HTTP_HOST=127.0.0.1 UGNAS_HTTP_PORT=4110 ugnas-mcp
 
 POST 127.0.0.1:4110/mcp      <span class="cm"># JSON-RPC, stateless</span>
 GET  127.0.0.1:4110/health   <span class="cm"># liveness + target host</span></pre>
@@ -607,13 +611,19 @@ GET  127.0.0.1:4110/health   <span class="cm"># liveness + target host</span></p
         <span class="sec-no">06 / 06</span>
       </div>
       <h2>Build, test, verify</h2>
+      <p class="lead" style="margin-bottom:16px">
+        Users run <code>npx ugnas-mcp</code> from <a href="https://www.npmjs.com/package/ugnas-mcp">npm</a> —
+        everything below is for working <em>on</em> the server. CI (GitHub Actions) runs the
+        same chain on every push and pull request.
+      </p>
       <pre class="code">pnpm install
 pnpm typecheck    <span class="cm"># tsc --noEmit</span>
 pnpm test         <span class="cm"># vitest — 38 tests, FakeExecutor, no NAS needed</span>
 pnpm build
 pnpm smoke        <span class="cm"># boots the built server, tools/list over stdio</span>
 pnpm smoke:http   <span class="cm"># boots with UGNAS_HTTP_PORT, checks /health + /mcp</span>
-pnpm integration  <span class="cm"># live-NAS checks (needs a reachable target)</span></pre>
+pnpm integration  <span class="cm"># live-NAS checks (needs a reachable target)</span>
+pnpm publish      <span class="cm"># prepublishOnly guard: typecheck → tests → build → smoke</span></pre>
       <p class="lead">
         Tests cover the confirmation gate, config validation, shell quoting, rsync
         gating, the output parsers, and a service↔tool wiring contract — the

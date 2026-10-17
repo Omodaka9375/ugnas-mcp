@@ -121,31 +121,38 @@ files.list("media")  ->  /volume1/media
 files.list("/mnt/x")  ->  /mnt/x
 ```
 
-## Build & run
+## Install & run
+
+Published on npm as [`ugnas-mcp`](https://www.npmjs.com/package/ugnas-mcp). Run it directly —
+no clone, no build:
 
 ```bash
-npm install
-npm run build
-node dist/src/server.js          # stdio MCP server
+npx ugnas-mcp
+# or install it once:
+npm install -g ugnas-mcp
+ugnas-mcp
 ```
 
-Run from source during development:
-
-```bash
-npm run dev
-```
+That starts the stdio MCP server. It reads its config from `~/.ugnas-mcp/config.json`
+(or `UGNAS_MCP_CONFIG` / `UGNAS_*` env vars — see [Configuration](#configuration)).
 
 ### Wiring it into an MCP client
 
-Add a server entry pointing at the built binary (stdio):
+Point your client at the official package (stdio):
 
 ```json
 {
-  "command": "node",
-  "args": ["/absolute/path/to/ugnas-mcp/dist/src/server.js"],
-  "env": { "UGNAS_MCP_CONFIG": "/absolute/path/to/config.json" }
+  "mcpServers": {
+    "ugnas": {
+      "command": "npx",
+      "args": ["-y", "ugnas-mcp"],
+      "env": { "UGNAS_MCP_CONFIG": "/absolute/path/to/config.json" }
+    }
+  }
 }
 ```
+
+Or, if you installed it globally, `"command": "ugnas-mcp"` with no args.
 
 ### Optional HTTP transport
 
@@ -153,7 +160,7 @@ The server is **stdio by default**. Set `UGNAS_HTTP_PORT` to *also* expose a str
 transport (both run side by side):
 
 ```bash
-UGNAS_HTTP_HOST=127.0.0.1 UGNAS_HTTP_PORT=4110 node dist/src/server.js
+UGNAS_HTTP_HOST=127.0.0.1 UGNAS_HTTP_PORT=4110 ugnas-mcp
 ```
 
 - `POST http://127.0.0.1:4110/mcp` — JSON-RPC (stateless; a fresh session per request, max 1 MiB body).
@@ -177,6 +184,9 @@ confirmation tokens are process-wide, so only opt in if the port is secured by s
 
 ## Development
 
+Everything below is for working **on** the server, not running it — users get `npx ugnas-mcp`
+from npm. CI (GitHub Actions) runs the same chain on every push and pull request:
+
 ```bash
 npm run typecheck   # tsc --noEmit
 npm test            # vitest
@@ -185,9 +195,10 @@ npm run smoke       # boots the built server, checks tools/list over stdio
 npm run smoke:http  # boots with UGNAS_HTTP_PORT and checks /health + /mcp
 ```
 
-Tests cover the confirmation-token safety gate, config loading/validation, shell quoting, rsync
-gating, the read-parsers, and the service↔tool wiring (the registered tool set is asserted to match
-the contract exactly) — all against a `FakeExecutor`, so **no real NAS is required** to run them.
+Run from source during development: `npm run dev`.
+
+Releasing: `npm publish` runs `prepublishOnly` (typecheck → tests → build → smoke), so a broken
+state can't ship. See [`CHANGELOG.md`](./CHANGELOG.md).
 
 ## Design notes
 
