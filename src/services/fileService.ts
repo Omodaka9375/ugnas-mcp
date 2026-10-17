@@ -1,13 +1,18 @@
+import { writeFileSync } from "node:fs";
+
 import { shq } from "../ssh/shellQuote.js";
 import { type ExecutionResult } from "../safety/plan.js";
 import type { ServiceContext } from "./context.js";
 import {
   execChecked,
   makePlan,
+  parseFindOutput,
   parseLsLong,
   planOrExecute,
   resolveRemotePath,
   resolveRemotePathPreserveTrailing,
+  toSftpPath,
+  type FoundEntry,
   type ParsedLsEntry,
   type ToolOutcome
 } from "./util.js";
@@ -22,6 +27,154 @@ export class FileService {
       `ls -la --time-style=long-iso ${shq(resolved)} 2>&1 || true`
     );
     return { path: resolved, entries: parseLsLong(stdout) };
+  }
+
+  /**
+   * Search for files by name glob, extension, and/or type. Read-only. Uses GNU
+   * find `-printf` for size + mtime, then filters the small result set in JS so
+   * the same predicates work even on BusyBox find.
+   */
+  async find(input: {
+    path: string;
+    name?: string;
+    extensions?: string[];
+    type?: "file" | "dir";
+    maxDepth?: number;
+    limit?: number;
+  }): Promise<{ path: string; count: number; truncated: boolean; entries: FoundEntry[] }> {
+    const resolved = resolveRemotePath(this.ctx.config, input.path);
+    const type = input.type ?? "file";
+    const limit = Math.min(Math.max(input.limit ?? 100, 1), 1000);
+
+    const parts = ["find", shq(resolved)];
+    if (typeof input.maxDepth === "number" && input.maxDepth > 0) {
+      parts.push("-maxdepth", String(Math.floor(input.maxDepth)));
+    }
+    if (type === "file" || type === "dir") {
+      parts.push("-type", type === "file" ? "f" : "d");
+    }
+    parts.push("-printf", shq("%s\\t%T@\\t%p\\n"));
+    // `find` exits non-zero when it can't descend into some subdirectory
+    // (permission denied); we still want the results it did produce.
+    parts.push("2>/dev/null || true");
+
+    const { stdout } = await execChecked(this.ctx.executor, parts.join(" "));
+    let entries = parseFindOutput(stdout);
+
+    if (input.name) {
+      const pattern = globToRegExp(input.name);
+      entries = entries.filter((entry) => pattern.test(entry.name));
+    }
+    if (input.extensions && input.extensions.length > 0) {
+      const wanted = new Set(input.extensions.map((ext) => ext.replace(/^\./, "").toLowerCase()));
+      entries = entries.filter((entry) => wanted.has(entry.extension));
+    }
+
+    const total = entries.length;
+    if (total > limit) {
+      entries = entries.slice(0, limit);
+    }
+
+    return { path: resolved, count: entries.length, truncated: total > limit, entries };
+  }
+
+  /**
+   * Generate a preview thumbnail on the NAS with ffmpeg (image or video frame),
+   * download it to the local machine, and remove the remote temp file.
+   *
+   * Read-only with respect to user data: the only NAS write is a temp file under
+   * /tmp, which is deleted before returning.
+   */
+  async thumbnail(input: {
+    path: string;
+    width?: number;
+    time?: string;
+    localPath: string;
+  }): Promise<{
+    source: string;
+    localPath: string;
+    kind: "image" | "video";
+    width: number;
+    bytes: number;
+    engine: string;
+  }> {
+    const source = resolveRemotePath(this.ctx.config, input.path);
+    const width = Math.min(Math.max(input.width ?? 640, 16), 4096);
+    const kind = mediaKind(input.path);
+
+    const ffmpegOk = await this.toolAvailable("ffmpeg");
+    if (!ffmpegOk) {
+      throw new Error(
+        "ffmpeg was not found on the NAS, so thumbnails cannot be generated. " +
+          "Install ffmpeg (e.g. via Entware: `opkg install ffmpeg`) and retry."
+      );
+    }
+
+    const remoteTemp = `/tmp/ugnas-thumb-${Date.now()}-${Math.floor(Math.random() * 1e6)}.jpg`;
+
+    // `-pix_fmt yuvj420p` forces a JPEG-friendly full-range format, avoiding
+    // mjpeg encoder failures on sources with yuv444p / non-standard range
+    // (common with HEVC video frames). `test -s` makes the exit code reflect a
+    // non-empty output, since ffmpeg can exit 0 while writing nothing.
+    const render = async (seekExpr: string): Promise<boolean> => {
+      const command =
+        `ffmpeg -hide_banner -loglevel error -y ${seekExpr}-i ${shq(source)} ` +
+        `-frames:v 1 -vf ${shq(`scale=${width}:-2`)} -pix_fmt yuvj420p -q:v 3 ${shq(remoteTemp)} ` +
+        `&& test -s ${shq(remoteTemp)}`;
+      const result = await this.ctx.executor.exec(command);
+      return result.code === 0;
+    };
+
+    try {
+      const requestedSeek = kind === "video" ? `-ss ${shq(input.time ?? "00:00:01")} ` : "";
+      let ok = await render(requestedSeek);
+      if (!ok && requestedSeek) {
+        // Seeking can land past the last decodable frame (e.g. short clips or
+        // streams with a broken tail) — retry from the first frame.
+        ok = await render("");
+      }
+      if (!ok) {
+        throw new Error(
+          `Thumbnail generation produced no data for ${source}. The source may not be a readable image/video, or ffmpeg failed.`
+        );
+      }
+
+      // Fetch the bytes over exec (base64) rather than SFTP: UGOS chroots SFTP
+      // to the share root, so /tmp is not reachable via SFTP.
+      const read = await execChecked(
+        this.ctx.executor,
+        `base64 -w0 ${shq(remoteTemp)} 2>/dev/null || base64 ${shq(remoteTemp)} 2>/dev/null`
+      );
+      const base64 = read.stdout.replace(/\s+/g, "");
+      if (!base64) {
+        throw new Error(`Thumbnail file ${remoteTemp} was empty after generation for ${source}.`);
+      }
+      const bytes = Buffer.from(base64, "base64");
+      writeFileSync(input.localPath, bytes);
+      return {
+        source,
+        localPath: input.localPath,
+        kind,
+        width,
+        bytes: bytes.length,
+        engine: "ffmpeg"
+      };
+    } finally {
+      // Best-effort cleanup of the remote temp file.
+      await this.ctx.executor.exec(`rm -f ${shq(remoteTemp)}`).catch(() => undefined);
+    }
+  }
+
+  private async toolAvailable(tool: string): Promise<boolean> {
+    try {
+      const { stdout } = await execChecked(
+        this.ctx.executor,
+        `command -v ${shq(tool)} >/dev/null 2>&1 && echo yes || echo no`
+      );
+      return stdout.trim() === "yes";
+    } catch {
+      return false;
+    }
   }
 
   async usage(input: { path: string; depth?: number }): Promise<{ path: string; report: string }> {
@@ -105,7 +258,7 @@ export class FileService {
       },
       input.token,
       async () => {
-        const result = await this.ctx.executor.upload(input.localPath, remote);
+        const result = await this.ctx.executor.upload(input.localPath, toSftpPath(this.ctx.config, remote));
         return {
           executed: true,
           action: "files.upload",
@@ -113,7 +266,7 @@ export class FileService {
           transfer: {
             direction: "upload",
             localPath: result.localPath,
-            remotePath: result.remotePath,
+            remotePath: remote,
             bytes: result.bytes
           }
         } satisfies ExecutionResult;
@@ -132,7 +285,7 @@ export class FileService {
       },
       input.token,
       async () => {
-        const result = await this.ctx.executor.download(remote, input.localPath);
+        const result = await this.ctx.executor.download(toSftpPath(this.ctx.config, remote), input.localPath);
         return {
           executed: true,
           action: "files.download",
@@ -140,7 +293,7 @@ export class FileService {
           transfer: {
             direction: "download",
             localPath: result.localPath,
-            remotePath: result.remotePath,
+            remotePath: remote,
             bytes: result.bytes
           }
         } satisfies ExecutionResult;
@@ -265,4 +418,31 @@ export class FileService {
     this.ctx.confirmations.consume(token, plan.action);
     return run();
   }
+}
+
+const VIDEO_EXTENSIONS = new Set([
+  "mp4",
+  "mkv",
+  "mov",
+  "avi",
+  "webm",
+  "m4v",
+  "mpg",
+  "mpeg",
+  "ts",
+  "flv",
+  "wmv",
+  "m2ts"
+]);
+
+function mediaKind(path: string): "image" | "video" {
+  const dot = path.lastIndexOf(".");
+  const ext = dot >= 0 ? path.slice(dot + 1).toLowerCase() : "";
+  return VIDEO_EXTENSIONS.has(ext) ? "video" : "image";
+}
+
+/** Convert a shell-style glob (`*.mp4`, `IMG_2024*`) into an anchored RegExp. */
+function globToRegExp(glob: string): RegExp {
+  const escaped = glob.replace(/[.+^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*").replace(/\?/g, ".");
+  return new RegExp(`^${escaped}$`, "i");
 }

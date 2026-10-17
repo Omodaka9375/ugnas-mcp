@@ -34,6 +34,26 @@ export function resolveRemotePath(config: ResolvedNasConfig, input: string): str
 }
 
 /**
+ * Map an absolute exec path to the path the (possibly chrooted) SFTP subsystem
+ * expects. On UGOS, SFTP is rooted at the share root, so `/volume1/docker/x`
+ * must be requested as `/docker/x`.
+ */
+export function toSftpPath(config: ResolvedNasConfig, execPath: string): string {
+  const root = config.sftpRoot.replace(/\/+$/, "");
+  if (root === "" || root === "/") {
+    return execPath;
+  }
+  if (execPath === root) {
+    return "/";
+  }
+  if (execPath.startsWith(`${root}/`)) {
+    return execPath.slice(root.length);
+  }
+  // Outside the share root — pass through and let SFTP decide.
+  return execPath;
+}
+
+/**
  * Like resolveRemotePath but preserves a trailing slash, which is significant for
  * rsync (source with trailing slash copies the *contents*, without it copies the dir).
  */
@@ -154,6 +174,72 @@ export function parseJsonLines<T = Record<string, unknown>>(text: string): T[] {
     }
   }
   return out;
+}
+
+export type FoundEntry = {
+  path: string;
+  name: string;
+  sizeBytes: number;
+  sizeHuman: string;
+  modified: string;
+  extension: string;
+};
+
+export function formatBytes(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes < 0) {
+    return String(bytes);
+  }
+  const units = ["B", "KB", "MB", "GB", "TB", "PB"];
+  let value = bytes;
+  let unit = 0;
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024;
+    unit += 1;
+  }
+  const rounded = unit === 0 ? String(value) : value.toFixed(value >= 10 ? 0 : 1);
+  return `${rounded} ${units[unit]}`;
+}
+
+export function extensionOf(name: string): string {
+  const dot = name.lastIndexOf(".");
+  return dot > 0 && dot < name.length - 1 ? name.slice(dot + 1).toLowerCase() : "";
+}
+
+/**
+ * Parse `find … -printf '%s\t%T@\t%p\n'` output: size (bytes), mtime (epoch
+ * seconds, possibly fractional), then the path (which may contain spaces).
+ */
+export function parseFindOutput(stdout: string): FoundEntry[] {
+  const entries: FoundEntry[] = [];
+  for (const rawLine of stdout.split(/\r?\n/)) {
+    const line = rawLine.replace(/\r$/, "");
+    if (!line) {
+      continue;
+    }
+    const firstTab = line.indexOf("\t");
+    const secondTab = line.indexOf("\t", firstTab + 1);
+    if (firstTab === -1 || secondTab === -1) {
+      continue;
+    }
+    const sizeRaw = line.slice(0, firstTab);
+    const mtimeRaw = line.slice(firstTab + 1, secondTab);
+    const path = line.slice(secondTab + 1);
+    if (!path) {
+      continue;
+    }
+    const sizeBytes = Number(sizeRaw);
+    const mtimeSeconds = Number(mtimeRaw);
+    const name = path.slice(path.lastIndexOf("/") + 1);
+    entries.push({
+      path,
+      name,
+      sizeBytes: Number.isFinite(sizeBytes) ? sizeBytes : 0,
+      sizeHuman: formatBytes(Number.isFinite(sizeBytes) ? sizeBytes : 0),
+      modified: Number.isFinite(mtimeSeconds) ? new Date(mtimeSeconds * 1000).toISOString() : "",
+      extension: extensionOf(name)
+    });
+  }
+  return entries;
 }
 
 export type ParsedLsEntry = {

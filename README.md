@@ -15,12 +15,17 @@ Organized the way a NAS owner actually thinks about daily operations:
 | --- | --- | --- |
 | **Connection & system** | `system.status`, `system.info`, `system.pools` | read-only |
 | **Docker** | `docker.containers.*` (list/inspect/logs/start/stop/restart/remove), `docker.images.*` (list/pull/remove), `docker.networks.*` (list/inspect/create/remove/connect/disconnect), `docker.compose` | start/stop/restart/pull/remove/create/compose are gated |
-| **Files & data** | `files.list`, `files.usage`, `files.mkdir`, `files.copy`, `files.move`, `files.remove`, `files.upload`, `files.download`, `files.sync` | mkdir/copy/move/remove/upload/download/sync are gated |
+| **Files & data** | `files.list`, `files.usage`, `files.find`, `files.thumbnail`, `files.mkdir`, `files.copy`, `files.move`, `files.remove`, `files.upload`, `files.download`, `files.sync` | mkdir/copy/move/remove/upload/download/sync are gated |
 | **Backup** | `backup.create`, `backup.list`, `backup.verify`, `backup.restore`, `backup.schedule` | create/restore/schedule are gated |
 | **Networks** | `network.interfaces`, `network.routes`, `network.ports` | read-only |
 
-**37 tools total.** `system.pools` reports mdadm array + degradation state, LVM volume/logical/physical
+**39 tools total.** `system.pools` reports mdadm array + degradation state, LVM volume/logical/physical
 volumes, btrfs devices, block devices, and filesystems.
+
+`files.find` searches a directory tree by name glob and/or extension (returns path, size, modified
+time). `files.thumbnail` renders a preview of an image or a video frame with `ffmpeg` on the NAS and
+downloads it locally — read-only with respect to your data (only a `/tmp` scratch file is written and
+removed). Requires `ffmpeg` on the NAS (present on UGOS by default).
 
 ### `files.sync` and the rsync fallback
 
@@ -75,6 +80,7 @@ The server reads a JSON config from `~/.ugnas-mcp/config.json` (override with th
 | `username` | yes | SSH user. |
 | `auth` | yes | `{ "type": "key", "privateKeyPath": "..." }` (recommended, supports `passphrase`) or `{ "type": "password", "password": "..." }`. `privateKeyPath` may also be raw inline PEM. |
 | `defaultShare` | no | Base directory for **relative** tool paths, default `/volume1`. |
+| `sftpRoot` | no | The directory the **SFTP subsystem** is rooted at. On UGOS, SFTP is chrooted to the share root, so an exec path like `/volume1/docker/x` must be requested over SFTP as `/docker/x`; set this to the chroot root (defaults to `defaultShare`). Use `"/"` if your NAS does not chroot SFTP. |
 | `hostKeySha256` | no | When set, the SSH host key is pinned and enforced (e.g. `SHA256:...`). |
 | `commandTimeoutMs` | no | Per-command timeout, default `60000`. |
 

@@ -1,0 +1,11 @@
+Add files.find + files.thumbnail; fix SFTP chroot path mapping
+
+- files.find: search a tree by name glob/extension (read-only), returning
+  path, size, mtime, extension; tolerates unreadable dirs.
+- files.thumbnail: render an image or video frame with ffmpeg on the NAS and
+  fetch it locally. Fetches bytes over exec (base64) because UGOS chroots the
+  SFTP subsystem to the share root, so /tmp is unreachable via SFTP. Forces
+  yuvj420p and retries without -ss when a seek yields no frame.
+- Config gains sftpRoot (defaults to defaultShare) and upload/download now map
+  exec paths to the chroot-relative SFTP path, fixing transfers on UGOS.
+- 39 tools total; 33 tests pass.

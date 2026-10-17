@@ -28,6 +28,14 @@ export const nasConfigSchema = z.object({
   auth: z.discriminatedUnion("type", [keyAuthSchema, passwordAuthSchema]),
   /** Base directory used to resolve relative share paths (e.g. "/volume1"). */
   defaultShare: z.string().min(1).default("/volume1"),
+  /**
+   * The directory that the SFTP subsystem is rooted at. On UGOS, SFTP is
+   * chrooted to the share root (so SFTP "/" == "/volume1" over exec), which
+   * means an exec path of `/volume1/docker/x` must be requested over SFTP as
+   * `/docker/x`. Defaults to `defaultShare`. Set to "/" to disable mapping for
+   * NASes whose SFTP is not chrooted.
+   */
+  sftpRoot: z.string().min(1).optional(),
   /** Optional pinned host key fingerprint (SHA256:...). When set, it is enforced. */
   hostKeySha256: z.string().optional(),
   /** Command execution timeout in milliseconds. */
@@ -36,11 +44,12 @@ export const nasConfigSchema = z.object({
 
 export type NasConfig = z.infer<typeof nasConfigSchema>;
 
-export type ResolvedNasConfig = Omit<NasConfig, "auth" | "defaultShare"> & {
+export type ResolvedNasConfig = Omit<NasConfig, "auth" | "defaultShare" | "sftpRoot"> & {
   auth:
     | { type: "key"; privateKey: Buffer; passphrase?: string }
     | { type: "password"; password: string };
   defaultShare: string;
+  sftpRoot: string;
 };
 
 export function defaultConfigPath(): string {
@@ -129,6 +138,7 @@ export function loadNasConfig(configPath = defaultConfigPath()): ResolvedNasConf
   return {
     ...config,
     defaultShare: config.defaultShare,
+    sftpRoot: config.sftpRoot ?? config.defaultShare,
     auth
   };
 }

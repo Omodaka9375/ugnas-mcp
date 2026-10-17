@@ -1,3 +1,7 @@
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
 import { describe, expect, it } from "vitest";
 
 import type { ResolvedNasConfig } from "../src/config.js";
@@ -5,6 +9,7 @@ import type { ServiceContext } from "../src/services/context.js";
 import { DockerService } from "../src/services/dockerService.js";
 import { FileService } from "../src/services/fileService.js";
 import { SystemService } from "../src/services/systemService.js";
+import { toSftpPath } from "../src/services/util.js";
 import { deterministicService, FakeExecutor } from "./helpers.js";
 
 function makeContext(executor: FakeExecutor): ServiceContext {
@@ -15,6 +20,7 @@ function makeContext(executor: FakeExecutor): ServiceContext {
     username: "admin",
     auth: { type: "password", password: "x" },
     defaultShare: "/volume1",
+    sftpRoot: "/volume1",
     commandTimeoutMs: 5000
   };
   return {
@@ -89,7 +95,9 @@ describe("file transfers are gated the same way", () => {
     });
 
     expect(executed).toMatchObject({ executed: true, transfer: { direction: "upload", bytes: 42 } });
-    expect(executor.uploads).toEqual([{ localPath: "C:/tmp/a.iso", remotePath: "/volume1/media/a.iso" }]);
+    // The transfer reports the exec path, but SFTP receives the chroot-relative path.
+    expect(executed).toMatchObject({ transfer: { remotePath: "/volume1/media/a.iso" } });
+    expect(executor.uploads).toEqual([{ localPath: "C:/tmp/a.iso", remotePath: "/media/a.iso" }]);
   });
 });
 
@@ -180,6 +188,112 @@ describe("files.sync", () => {
     expect(joined).toMatch(/cannot mirror/);
     expect(joined).toMatch(/does not support rsync --dry-run/);
     expect(joined).toMatch(/ignores extraArgs/);
+  });
+});
+
+describe("files.find", () => {
+  it("parses find output, filters by extension, and reports sizes", async () => {
+    const executor = new FakeExecutor();
+    const files = new FileService(makeContext(executor));
+
+    // Capture the exact find command, then answer it.
+    await files.find({ path: "media" }).catch(() => undefined);
+    const command = executor.commands[executor.commands.length - 1] ?? "";
+    executor.when(command, {
+      stdout: [
+        "1048576\t1700000000\t/volume1/media/movie.mkv",
+        "2048\t1700000100\t/volume1/media/note.txt",
+        "4096\t1700000200\t/volume1/media/clip.MP4"
+      ].join("\n")
+    });
+
+    const all = await files.find({ path: "media" });
+    expect(all.count).toBe(3);
+    expect(all.entries[0]).toMatchObject({ name: "movie.mkv", sizeBytes: 1048576, sizeHuman: "1.0 MB", extension: "mkv" });
+
+    const videos = await files.find({ path: "media", extensions: ["mp4", ".mkv"] });
+    expect(videos.count).toBe(2);
+    expect(videos.entries.map((e) => e.extension).sort()).toEqual(["mkv", "mp4"]);
+  });
+
+  it("filters by name glob and honours the limit", async () => {
+    const executor = new FakeExecutor();
+    const files = new FileService(makeContext(executor));
+    await files.find({ path: "media" }).catch(() => undefined);
+    const command = executor.commands[executor.commands.length - 1] ?? "";
+    executor.when(command, {
+      stdout: [
+        "10\t1700000000\t/volume1/media/IMG_2024_a.jpg",
+        "10\t1700000000\t/volume1/media/IMG_2024_b.jpg",
+        "10\t1700000000\t/volume1/media/other.jpg"
+      ].join("\n")
+    });
+
+    const result = await files.find({ path: "media", name: "IMG_2024*", limit: 1 });
+    expect(result.truncated).toBe(true);
+    expect(result.entries).toHaveLength(1);
+    expect(result.entries[0]?.name).toBe("IMG_2024_a.jpg");
+  });
+});
+
+describe("files.thumbnail", () => {
+  it("generates via ffmpeg, fetches bytes over exec (base64), and cleans up", async () => {
+    const executor = new FakeExecutor();
+    executor.when("command -v 'ffmpeg' >/dev/null 2>&1 && echo yes || echo no", { stdout: "yes" });
+    // The base64 read returns a small known payload.
+    const payload = Buffer.from("fake-jpeg-bytes").toString("base64");
+    const files = new FileService(makeContext(executor));
+
+    // Intercept the base64 read; everything else goes to the fake.
+    const origExec = executor.exec.bind(executor);
+    executor.exec = async (command: string) => {
+      if (command.startsWith("base64 ")) {
+        return { command, stdout: payload, stderr: "", code: 0 };
+      }
+      return origExec(command);
+    };
+
+    const dir = mkdtempSync(join(tmpdir(), "ugnas-thumb-"));
+    const out = join(dir, "thumb.jpg");
+    try {
+      const result = await files.thumbnail({
+        path: "media/movie.mkv",
+        localPath: out,
+        width: 320,
+        time: "00:00:05"
+      });
+
+      expect(result).toMatchObject({ kind: "video", width: 320, engine: "ffmpeg" });
+      expect(result.bytes).toBe(Buffer.from("fake-jpeg-bytes").length);
+      expect(readFileSync(out, "utf8")).toBe("fake-jpeg-bytes");
+
+      const ffmpegCmd = executor.commands.find((c) => c.startsWith("ffmpeg"));
+      expect(ffmpegCmd).toContain("-ss '00:00:05'");
+      expect(ffmpegCmd).toContain("'scale=320:-2'");
+      expect(ffmpegCmd).toContain("'/volume1/media/movie.mkv'");
+
+      const cleanup = executor.commands.find((c) => c.startsWith("rm -f "));
+      expect(cleanup).toBeDefined();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("refuses when ffmpeg is missing", async () => {
+    const executor = new FakeExecutor();
+    executor.when("command -v 'ffmpeg' >/dev/null 2>&1 && echo yes || echo no", { stdout: "no" });
+    const files = new FileService(makeContext(executor));
+
+    await expect(files.thumbnail({ path: "photos/a.jpg", localPath: "C:/tmp/a.jpg" })).rejects.toThrow(/ffmpeg/);
+  });
+});
+
+describe("SFTP path mapping", () => {
+  it("strips the share root for chrooted SFTP", () => {
+    const config = makeContext(new FakeExecutor()).config;
+    expect(toSftpPath(config, "/volume1/docker/x.iso")).toBe("/docker/x.iso");
+    expect(toSftpPath(config, "/volume1")).toBe("/");
+    expect(toSftpPath(config, "/elsewhere/y")).toBe("/elsewhere/y");
   });
 });
 

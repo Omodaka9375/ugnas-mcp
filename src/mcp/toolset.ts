@@ -318,6 +318,43 @@ export function registerTools(server: McpServer, ctx: ServiceContext): void {
   );
 
   server.registerTool(
+    "files.find",
+    {
+      description:
+        "Search for files by name glob and/or extension across a directory tree. Read-only. Returns path, size, modified time, and extension for each match.",
+      inputSchema: {
+        path: z.string().describe("Directory to search (absolute, or relative to defaultShare)."),
+        name: z.string().optional().describe("Filename glob, e.g. '*.mp4' or 'IMG_2024*'."),
+        extensions: z
+          .array(z.string())
+          .optional()
+          .describe("Only these extensions, e.g. ['mp4','mkv'] (case-insensitive; leading dot optional)."),
+        type: z.enum(["file", "dir"]).optional().describe("Match files (default) or directories."),
+        maxDepth: z.number().int().positive().optional().describe("Limit recursion depth."),
+        limit: z.number().int().positive().max(1000).optional().describe("Max results (default 100).")
+      }
+    },
+    async ({ path, name, extensions, type, maxDepth, limit }) =>
+      respond(await files.find({ path, name, extensions, type, maxDepth, limit }))
+  );
+
+  server.registerTool(
+    "files.thumbnail",
+    {
+      description:
+        "Generate a preview thumbnail of an image or video on the NAS with ffmpeg and download it locally. For videos a frame is captured (default 1s in). Read-only with respect to your data; the NAS temp file is removed.",
+      inputSchema: {
+        path: z.string().describe("Image or video file on the NAS."),
+        localPath: z.string().describe("Where to save the thumbnail on the machine running this MCP server."),
+        width: z.number().int().min(16).max(4096).optional().describe("Thumbnail width in px (default 640; height auto)."),
+        time: z.string().optional().describe("Video frame timestamp, e.g. '00:00:05' (default 00:00:01).")
+      }
+    },
+    async ({ path, localPath, width, time }) =>
+      respond((await files.thumbnail({ path, localPath, width, time })) as unknown as Record<string, unknown>)
+  );
+
+  server.registerTool(
     "files.mkdir",
     {
       description: "Create a directory. Mutating: returns a dry-run plan unless a confirmation token is supplied.",
