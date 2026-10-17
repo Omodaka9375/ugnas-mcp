@@ -1,6 +1,6 @@
 {
   "name": "ugnas-mcp",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Generic MCP server for UGREEN NAS (UGOS) over SSH — Docker, files, backups, and networks with dry-run safety.",
   "type": "module",
   "bin": {

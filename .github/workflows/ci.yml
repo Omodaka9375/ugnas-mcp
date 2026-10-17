@@ -1,0 +1,51 @@
+name: CI
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+
+jobs:
+  build-test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        node: [20, 22]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Test
+        run: pnpm test
+
+      - name: Build
+        run: pnpm build
+
+      - name: Smoke (stdio)
+        run: pnpm smoke
+
+      - name: Smoke (HTTP)
+        run: pnpm smoke:http
+
+      # The wiring contract: assert the registered tool set matches the
+      # documented 39 exactly (fail on any drift).
+      - name: Wiring contract
+        if: matrix.os == 'ubuntu-latest' && matrix.node == 22
+        run: pnpm exec vitest run tests/wiring.test.ts

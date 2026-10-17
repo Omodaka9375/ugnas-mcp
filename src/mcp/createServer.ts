@@ -4,7 +4,7 @@ import { registerTools } from "./toolset.js";
 import type { ServiceContext } from "../services/context.js";
 
 export const SERVER_NAME = "ugnas-mcp";
-export const SERVER_VERSION = "0.1.0";
+export const SERVER_VERSION = "0.1.1";
 
 export function createMcpServer(ctx: ServiceContext): McpServer {
   const server = new McpServer({

@@ -439,7 +439,60 @@ describe("read parsing", () => {
     expect(listing.entries[0]).toMatchObject({ name: "my folder", type: "dir" });
     expect(listing.entries[1]).toMatchObject({ name: "movie.mkv", type: "file", sizeBytes: 123 });
   });
-});
+
+  it("filters structural . and .. entries and errors on missing paths", async () => {
+    const executor = new FakeExecutor();
+    executor.when("ls --time-style=long-iso -d / >/dev/null 2>&1 && echo yes || echo no", {
+      stdout: "yes"
+    });
+    executor.when("ls -la --time-style=long-iso '/volume1/empty' 2>&1 || true", {
+      stdout: [
+        "total 4",
+        "drwxr-xr-x 2 root root 4096 2024-01-02 03:04 .",
+        "drwxr-xr-x 3 root root 4096 2024-01-02 03:04 .."
+      ].join("\n")
+    });
+
+    const listing = await new FileService(makeContext(executor)).list("empty");
+    expect(listing.entries).toEqual([]);
+
+    executor.when("ls -la --time-style=long-iso '/volume1/nope' 2>&1 || true", {
+      stdout: "ls: cannot access '/volume1/nope': No such file or directory"
+    });
+    await expect(new FileService(makeContext(executor)).list("nope")).rejects.toThrow(/Path not found/);
+  });
+
+  it("refuses to plan deletions of root and UGOS-managed paths", async () => {
+    const executor = new FakeExecutor();
+    const files = new FileService(makeContext(executor));
+
+    await expect(files.remove({ path: "/" })).rejects.toThrow(/Refusing/);
+    await expect(files.remove({ path: "/volume1" })).rejects.toThrow(/share root/);
+    await expect(files.remove({ path: "/etc" })).rejects.toThrow(/top-level system directory/);
+    await expect(files.remove({ path: "@docker" })).rejects.toThrow(/UGOS-managed/);
+    // Nothing should have been planned, let alone executed.
+    expect(executor.commands).toEqual([]);
+
+    // A normal subdirectory still plans fine (and runs nothing without a token).
+    const plan = await files.remove({ path: "media/old" });
+    expect(plan).toMatchObject({ dryRun: true, action: "files.remove" });
+  });
+
+  it("warns when backup.create would archive the source into itself", async () => {
+    const executor = new FakeExecutor();
+    const backup = new (await import("../src/services/backupService.js")).BackupService(
+      makeContext(executor)
+    );
+    const plan = await backup.create({
+      path: "docker/mystack",
+      destinationDir: "docker/mystack"
+    });
+    expect(plan).toMatchObject({ dryRun: true });
+    if (!("warnings" in plan)) {
+      throw new Error("expected warnings");
+    }
+    expect(plan.warnings.join(" ")).toMatch(/destination.* is inside the source|OUTSIDE/);
+  });});
 
 /** Build the exact system.info command string used by the service. */
 async function expectedInfoCommand(executor: FakeExecutor): Promise<string> {

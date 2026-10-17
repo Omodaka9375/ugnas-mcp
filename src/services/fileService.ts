@@ -69,8 +69,11 @@ export class FileService {
       ));
     }
 
-    const entries = await this.gnuLs()
-      .then((gnu) => (gnu ? parseLsLong(stdout) : parseLsPlain(stdout)));
+    const entries = (await this.gnuLs()
+      .then((gnu) => (gnu ? parseLsLong(stdout) : parseLsPlain(stdout)))).filter(
+      // `.` and `..` are structural noise, not directory content.
+      (entry) => entry.name !== "." && entry.name !== ".."
+    );
 
     // A nonexistent path must not masquerade as an empty directory.
     if (entries.length === 0 && /No such file or directory/.test(stdout)) {
@@ -314,8 +317,17 @@ export class FileService {
     );
   }
 
-  remove(input: { path: string; recursive?: boolean; token?: string }): Promise<ToolOutcome> {
+  async remove(input: { path: string; recursive?: boolean; token?: string }): Promise<ToolOutcome> {
     const resolved = resolveRemotePath(this.ctx.config, input.path);
+
+    // Root-path deny-list: deleting the filesystem root, the share root, or
+    // any top-level system directory is far more likely a mistake than an
+    // intent — refuse outright instead of planning it.
+    const reason = deletionDenyReason(resolved, this.ctx.config);
+    if (reason) {
+      throw new Error(reason);
+    }
+
     const flags = input.recursive === false ? "-f" : "-rf";
     return planOrExecute(
       this.ctx,
@@ -528,6 +540,48 @@ function mediaKind(path: string): "image" | "video" {
 function globToRegExp(glob: string): RegExp {
   const escaped = glob.replace(/[.+^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*").replace(/\?/g, ".");
   return new RegExp(`^${escaped}$`, "i");
+}
+
+/**
+ * Root-path deny-list for destructive file operations. A deletion target that
+ * is the filesystem root, a bare volume root (/volume1), or a direct child of
+ * the filesystem root (/etc, /usr, ...) is far more likely a mistake than an
+ * intent. UGOS system directories under the share (like `@docker`) are also
+ * protected — deleting them can brick the appliance's managed services.
+ */
+const PROTECTED_TOPLEVEL_UGOS = new Set([
+  "@docker",
+  "@appstore",
+  "@home",
+  "@tmp",
+  "@upload",
+  "@aiconsole",
+  "@exif",
+  "@search",
+  "@thumbnail",
+  "@video_web"
+]);
+
+export function deletionDenyReason(resolved: string, config: { defaultShare: string }): string | null {
+  if (resolved === "/" || resolved === "" || resolved === ".") {
+    return "Refusing to delete the filesystem root.";
+  }
+  // A bare volume root (e.g. "/volume1") or the configured share root.
+  if (resolved === config.defaultShare || /^\/volume\d+$/.test(resolved)) {
+    return `Refusing to delete a share root (${resolved}). Deleting a share root is almost never intended; if you really must, do it manually over SSH.`;
+  }
+  // Direct children of the filesystem root are system directories (/etc, /usr, /boot...).
+  if (/^\/[^/]+$/.test(resolved) && !resolved.startsWith("/volume")) {
+    return `Refusing to delete the top-level system directory ${resolved}.`;
+  }
+  // UGOS-managed top-level directories under the share.
+  if (resolved.startsWith(`${config.defaultShare}/`)) {
+    const topLevel = resolved.slice(config.defaultShare.length + 1).split("/")[0] ?? "";
+    if (PROTECTED_TOPLEVEL_UGOS.has(topLevel)) {
+      return `Refusing to delete the UGOS-managed directory ${resolved} ("${topLevel}") — deleting it can break the appliance's managed services.`;
+    }
+  }
+  return null;
 }
 
 /**

@@ -27,6 +27,20 @@ export class BackupService {
     const destinationDir = resolveRemotePath(this.ctx.config, input.destinationDir);
     const archiveName = posix.basename(input.name ?? `backup-${stamp()}.tar.gz`);
     const archivePath = posix.join(destinationDir, archiveName);
+
+    const warnings: string[] = [];
+    // Archiving a directory into itself: tar reads its own growing output
+    // file, exits 1 with "file changed as we read it", and the archive
+    // includes a growing/zero tail of itself. Warn loudly and suggest a
+    // destination outside the source.
+    if (archivePath === `${source}/${archiveName}` || archivePath.startsWith(`${source}/`)) {
+      warnings.push(
+        `The archive destination (${archivePath}) is inside the source directory (${source}). ` +
+          "tar will try to archive its own output file — expect exit 1 with 'file changed as we read it' " +
+          "and a garbage tail entry. Choose a destination directory OUTSIDE the source."
+      );
+    }
+
     const command = `mkdir -p ${shq(destinationDir)} && tar -czf ${shq(archivePath)} -C ${shq(source)} .`;
 
     return planOrExecute(
@@ -35,7 +49,8 @@ export class BackupService {
         action: "backup.create",
         summary: `Create archive ${archivePath} from ${source}.`,
         commands: [command],
-        payload: { path: source, destinationDir, archivePath }
+        payload: { path: source, destinationDir, archivePath },
+        warnings,
       }),
       input.token
     );
