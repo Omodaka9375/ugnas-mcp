@@ -329,6 +329,7 @@
       running UGOS, spoken to over <strong>SSH</strong>. Nothing hard-coded — no fixed IPs,
       subnets, usernames, or share names. Point it at yours.
     </p>
+    <pre class="code" style="border:1px solid var(--rule-dark);border-left:3px solid var(--rule-dark);margin:0 0 28px;font-size:0.9rem;">npx -y ugnas-mcp</pre>
     <dl class="specs">
       <div><dt>Tools</dt><dd>39</dd></div>
       <div><dt>Runtime</dt><dd>Node ≥ 20</dd></div>
@@ -610,26 +611,13 @@ GET  127.0.0.1:4110/health   <span class="cm"># liveness + target host</span></p
         <p class="kicker">Development</p>
         <span class="sec-no">06 / 06</span>
       </div>
-      <h2>Build, test, verify</h2>
-      <p class="lead" style="margin-bottom:16px">
-        Users run <code>npx ugnas-mcp</code> from <a href="https://www.npmjs.com/package/ugnas-mcp">npm</a> —
-        everything below is for working <em>on</em> the server. CI (GitHub Actions) runs the
-        same chain on every push and pull request.
-      </p>
-      <pre class="code">pnpm install
-pnpm typecheck    <span class="cm"># tsc --noEmit</span>
-pnpm test         <span class="cm"># vitest — 38 tests, FakeExecutor, no NAS needed</span>
-pnpm build
-pnpm smoke        <span class="cm"># boots the built server, tools/list over stdio</span>
-pnpm smoke:http   <span class="cm"># boots with UGNAS_HTTP_PORT, checks /health + /mcp</span>
-pnpm integration  <span class="cm"># live-NAS checks (needs a reachable target)</span>
-pnpm publish      <span class="cm"># prepublishOnly guard: typecheck → tests → build → smoke</span></pre>
+      <h2>Developing the server</h2>
       <p class="lead">
-        Tests cover the confirmation gate, config validation, shell quoting, rsync
-        gating, the output parsers, and a service↔tool wiring contract — the
-        registered tool set is asserted to match the ledger above exactly, so a
-        dead method or a missing registration fails the build. The suite runs
-        against a <code>FakeExecutor</code>; no NAS is required.
+        Everything needed to work <em>on</em> the server — commands, tests, architecture,
+        and the release pipeline — lives in
+        <a href="https://github.com/Omodaka9375/ugnas-mcp/blob/main/DEVELOPMENT.md">DEVELOPMENT.md</a>.
+        CI (GitHub Actions) runs the full chain — typecheck, tests, build, both smoke
+        tests — on every push and pull request.
       </p>
     </div>
   </section>

@@ -4,6 +4,10 @@
 [![npm](https://img.shields.io/npm/v/ugnas-mcp)](https://www.npmjs.com/package/ugnas-mcp)
 [![License: MIT](https://img.shields.io/badge/license-MIT-black)](./LICENSE)
 
+```bash
+npx -y ugnas-mcp
+```
+
 A **generic** MCP (Model Context Protocol) server for **UGREEN NAS** devices running UGOS,
 talking to the NAS over **SSH** (with SFTP for file transfers).
 
@@ -182,33 +186,7 @@ confirmation tokens are process-wide, so only opt in if the port is secured by s
   to install it or how to enable the built-in `cp` fallback (`files.sync { fallback: "cp" }`); every
   other file tool works without rsync.
 
-## Development
-
-Everything below is for working **on** the server, not running it — users get `npx ugnas-mcp`
-from npm. CI (GitHub Actions) runs the same chain on every push and pull request:
-
-```bash
-npm run typecheck   # tsc --noEmit
-npm test            # vitest
-npm run build
-npm run smoke       # boots the built server, checks tools/list over stdio
-npm run smoke:http  # boots with UGNAS_HTTP_PORT and checks /health + /mcp
-```
-
-Run from source during development: `npm run dev`.
-
-Releasing: `npm publish` runs `prepublishOnly` (typecheck → tests → build → smoke), so a broken
-state can't ship. See [`CHANGELOG.md`](./CHANGELOG.md).
-
-## Design notes
-
-- `src/config.ts` — validation and resolution of the single NAS target (no defaults that encode a
-  specific device).
-- `src/ssh/` — the `CommandExecutor` interface, the `ssh2`-backed `SshExecutor`, and shell quoting.
-- `src/safety/` — the dry-run/confirmation model.
-- `src/services/` — one module per tool group; each takes a `ServiceContext`.
-- `src/mcp/` — server construction and tool registration.
-
 ## License
 
-MIT
+MIT — see [`LICENSE`](./LICENSE). Contributing, architecture, and the dev/release toolchain
+live in [`DEVELOPMENT.md`](./DEVELOPMENT.md).
