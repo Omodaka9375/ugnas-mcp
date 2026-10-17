@@ -10,6 +10,27 @@
     "dist",
     "README.md"
   ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Omodaka9375/ugnas-mcp.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Omodaka9375/ugnas-mcp/issues"
+  },
+  "homepage": "https://github.com/Omodaka9375/ugnas-mcp#readme",
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "ugreen",
+    "ugos",
+    "nas",
+    "ssh",
+    "sftp",
+    "docker",
+    "backup",
+    "homelab"
+  ],
+  "license": "MIT",
   "engines": {
     "node": ">=20"
   },

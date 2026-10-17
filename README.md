@@ -1,5 +1,9 @@
 # ugnas-mcp
 
+[![CI](https://github.com/Omodaka9375/ugnas-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/Omodaka9375/ugnas-mcp/actions/workflows/ci.yml)
+[![npm](https://img.shields.io/npm/v/ugnas-mcp)](https://www.npmjs.com/package/ugnas-mcp)
+[![License: MIT](https://img.shields.io/badge/license-MIT-black)](./LICENSE)
+
 A **generic** MCP (Model Context Protocol) server for **UGREEN NAS** devices running UGOS,
 talking to the NAS over **SSH** (with SFTP for file transfers).
 
