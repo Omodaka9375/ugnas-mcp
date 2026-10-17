@@ -1,5 +1,10 @@
 #!/usr/bin/env node
-import { createServer as createHttpServer, type IncomingMessage, type ServerResponse } from "node:http";
+import {
+  createServer as createHttpServer,
+  type IncomingMessage,
+  type ServerResponse,
+  type Server as httpServerType
+} from "node:http";
 
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
@@ -28,13 +33,31 @@ export function httpOptions(env: NodeJS.ProcessEnv = process.env): HttpOptions |
   if (!env.UGNAS_HTTP_PORT || !Number.isFinite(port) || port <= 0) {
     return null;
   }
-  return { host: env.UGNAS_HTTP_HOST ?? "127.0.0.1", port };
+  const host = env.UGNAS_HTTP_HOST ?? "127.0.0.1";
+  const isLoopback = host === "127.0.0.1" || host === "localhost" || host === "::1";
+  // The HTTP transport has NO authentication, and confirmation tokens are
+  // process-wide — binding beyond loopback would hand full (destructive) NAS
+  // control to anyone who can reach the port. Require an explicit opt-in.
+  if (!isLoopback && env.UGNAS_HTTP_ALLOW_REMOTE !== "1") {
+    throw new Error(
+      `Refusing to bind HTTP transport to ${host}: /mcp has no authentication. ` +
+        `Set UGNAS_HTTP_ALLOW_REMOTE=1 only if the port is secured by something else (VPN/reverse proxy with auth).`
+    );
+  }
+  return { host, port };
 }
 
 async function readJsonBody(req: IncomingMessage): Promise<unknown> {
+  const MAX_BODY_BYTES = 1024 * 1024;
+  let size = 0;
   const chunks: Buffer[] = [];
   for await (const chunk of req) {
-    chunks.push(chunk as Buffer);
+    const buffer = chunk as Buffer;
+    size += buffer.length;
+    if (size > MAX_BODY_BYTES) {
+      throw new Error("Request body exceeds the 1 MiB limit");
+    }
+    chunks.push(buffer);
   }
   const text = Buffer.concat(chunks).toString("utf8").trim();
   if (!text) {
@@ -47,7 +70,7 @@ async function readJsonBody(req: IncomingMessage): Promise<unknown> {
   }
 }
 
-function startHttpTransport(ctx: ServiceContext, options: HttpOptions): void {
+function startHttpTransport(ctx: ServiceContext, options: HttpOptions): httpServerType {
   const server = createHttpServer((req: IncomingMessage, res: ServerResponse) => {
     void handleHttpRequest(ctx, req, res);
   });
@@ -57,6 +80,7 @@ function startHttpTransport(ctx: ServiceContext, options: HttpOptions): void {
       `ugnas-mcp: HTTP transport listening on http://${options.host}:${options.port}/mcp\n`
     );
   });
+  return server;
 }
 
 async function handleHttpRequest(
@@ -131,15 +155,22 @@ async function main(): Promise<void> {
   const ctx = buildContext();
 
   const stdioServer = createMcpServer(ctx);
-  await stdioServer.connect(new StdioServerTransport());
+  const stdioTransport = new StdioServerTransport();
+  await stdioServer.connect(stdioTransport);
 
   const options = httpOptions();
-  if (options) {
-    startHttpTransport(ctx, options);
-  }
+  const httpServer = options ? startHttpTransport(ctx, options) : null;
 
+  let shuttingDown = false;
   const shutdown = () => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    // Without an explicit exit, registered signal handlers suppress Node's
+    // default termination and the process would hang after Ctrl+C.
     ctx.executor.close();
+    httpServer?.close();
+    void stdioServer.close().finally(() => process.exit(0));
+    setTimeout(() => process.exit(0), 2000).unref();
   };
   process.on("SIGINT", shutdown);
   process.on("SIGTERM", shutdown);

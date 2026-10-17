@@ -1,0 +1,38 @@
+Security + robustness hardening from code review
+
+Deleted dead code: SystemService.dockerVersion(), NetworkService.dockerNetworks()/
+dockerNetworkInspect() (duplicates of DockerService), shqArgs().
+
+Fixed:
+- backup.schedule: shell injection via job `name` in the generated cron script,
+  path traversal in script/archive placement, and newline-split crontab lines;
+  `name` is now strict ^[A-Za-z0-9._-]+$, `cron` validated as exactly 5 fields,
+  and grep -vF (fixed-string) replaces the regex grep.
+- backup.create: posix.basename() on the archive name (no ../ traversal).
+- sshExecutor: cached in-flight connect() promise (no double-connect race),
+  persistent close/error handlers reset `connected` so a dropped connection
+  reconnects instead of crashing on an unhandled "error" event, exec timeout
+  now KILLs and closes the channel (no leak) with an honest "remote op may
+  still be running" message, and stream-level errors are handled.
+- hostKey pinning: compare fingerprints padding-stripped so standard
+  `ssh-keygen -lf` output pins successfully.
+- server: SIGINT/SIGTERM now closes transports/HTTP server and exits (was
+  hanging); /mcp refuses non-loopback binds without UGNAS_HTTP_ALLOW_REMOTE=1
+  (transport is unauthenticated); readJsonBody capped at 1 MiB.
+
+Improvements:
+- planOrExecute cross-checks the confirming call's payload against the plan-time
+  payload (payloadMismatch) — stale tokens with different arguments are rejected.
+- BusyBox portability: cached GNU ls/find capability probes; files.list falls
+  back to `ls -1p` (+ parseLsPlain) and files.find to `stat -c '%s|%Y|%n'` when
+  GNU flags are missing; files.list errors on nonexistent paths instead of [].
+- system.pools parsers rebuilt against real tool output: vgs/lvs/pvs with '|'
+  separator (three sections), btrfs `path /dev/...` device lines with
+  label-quote stripping, lsblk -P KEY="value" pairs (blank columns survive).
+- files.thumbnail now gates its LOCAL file write behind the confirm token
+  (NAS-side render/base64 fetch remain pre-gate; only /tmp temp involved).
+- tests/wiring.test.ts: asserts the exact 39-tool registration set, that every
+  contract service method is a function, and that confirmToken field presence
+  matches each tool's mutating status.
+
+Typecheck clean; 35/35 tests; build + stdio/HTTP smoke pass (39 tools).

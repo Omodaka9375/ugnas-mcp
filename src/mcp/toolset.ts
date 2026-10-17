@@ -342,16 +342,22 @@ export function registerTools(server: McpServer, ctx: ServiceContext): void {
     "files.thumbnail",
     {
       description:
-        "Generate a preview thumbnail of an image or video on the NAS with ffmpeg and download it locally. For videos a frame is captured (default 1s in). Read-only with respect to your data; the NAS temp file is removed.",
+        "Generate a preview thumbnail of an image or video on the NAS with ffmpeg and download it locally. For videos a frame is captured (default 1s in). Mutating (it writes a file on the local machine): returns a dry-run plan unless a confirmation token is supplied.",
       inputSchema: {
         path: z.string().describe("Image or video file on the NAS."),
         localPath: z.string().describe("Where to save the thumbnail on the machine running this MCP server."),
         width: z.number().int().min(16).max(4096).optional().describe("Thumbnail width in px (default 640; height auto)."),
-        time: z.string().optional().describe("Video frame timestamp, e.g. '00:00:05' (default 00:00:01).")
+        time: z.string().optional().describe("Video frame timestamp, e.g. '00:00:05' (default 00:00:01)."),
+        confirmToken: tokenField
       }
     },
-    async ({ path, localPath, width, time }) =>
-      respond((await files.thumbnail({ path, localPath, width, time })) as unknown as Record<string, unknown>)
+    async ({ path, localPath, width, time, confirmToken }) =>
+      respond(
+        (await files.thumbnail({ path, localPath, width, time, token: confirmToken })) as unknown as Record<
+          string,
+          unknown
+        >
+      )
   );
 
   server.registerTool(

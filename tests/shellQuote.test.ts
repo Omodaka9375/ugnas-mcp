@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { shq, shqArgs } from "../src/ssh/shellQuote.js";
+import { shq } from "../src/ssh/shellQuote.js";
 
 describe("shq", () => {
   it("wraps a plain value in single quotes", () => {
@@ -19,9 +19,5 @@ describe("shq", () => {
     expect(shq("a; rm -rf /")).toBe("'a; rm -rf /'");
     expect(shq("$(whoami)")).toBe("'$(whoami)'");
     expect(shq("`id`")).toBe("'`id`'");
-  });
-
-  it("joins argument lists", () => {
-    expect(shqArgs(["a", "b c"])).toBe("'a' 'b c'");
   });
 });

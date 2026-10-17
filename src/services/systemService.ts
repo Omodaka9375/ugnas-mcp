@@ -155,19 +155,25 @@ export class SystemService {
     };
   }
 
-  async dockerVersion(): Promise<{ installed: boolean; version: string | null }> {
-    const { stdout } = await execChecked(this.ctx.executor, "docker --version 2>/dev/null || echo NOT_INSTALLED");
-    const raw = stdout.trim();
-    return { installed: raw !== "NOT_INSTALLED" && raw.length > 0, version: raw || null };
-  }
-
   /** Storage pool / RAID / filesystem health across whatever layers the box uses. */
   async pools(): Promise<StoragePools> {
     const command = [
       sectionCommand("MDSTAT", "cat /proc/mdstat 2>/dev/null || true"),
-      sectionCommand("LVM", "which lvm >/dev/null 2>&1 && lvm fullreport 2>/dev/null | head -n 200 || true"),
-      sectionCommand("BTRFS", "which btrfs >/dev/null 2>&1 && btrfs filesystem show 2>/dev/null || true"),
-      sectionCommand("LSBLK", "lsblk -o NAME,SIZE,TYPE,FSTYPE,MOUNTPOINT,MODEL 2>/dev/null || true"),
+      sectionCommand(
+        "LVM",
+        // `lvm fullreport` is awkward to parse; the per-object listings with a
+        // defined separator parse cleanly and exist wherever LVM does.
+        "command -v vgs >/dev/null 2>&1 && " +
+          "(vgs --noheadings --nosuffix --units b --separator '|' ; echo '---' ; " +
+          "lvs --noheadings --nosuffix --units b --separator '|' ; echo '---' ; " +
+          "pvs --noheadings --nosuffix --units b --separator '|') 2>/dev/null || true"
+      ),
+      sectionCommand("BTRFS", "command -v btrfs >/dev/null 2>&1 && btrfs filesystem show 2>/dev/null || true"),
+      // -P gives KEY="value" pairs that survive blank columns.
+      sectionCommand(
+        "LSBLK",
+        "command -v lsblk >/dev/null 2>&1 && lsblk -P -o NAME,SIZE,TYPE,FSTYPE,MOUNTPOINT,MODEL 2>/dev/null || true"
+      ),
       sectionCommand("BLKID", "blkid 2>/dev/null || true")
     ].join("\n");
 
@@ -279,42 +285,46 @@ export function parseMdstat(block: string): MdArray[] {
   return arrays;
 }
 
+/**
+ * Parse the three-section `vgs/lvs/pvs --separator '|'` output produced by
+ * SystemService.pools: volume groups, then `---`, then logical volumes, then
+ * `---`, then physical volumes. Fields with vgs: vg_name|vg_size|vg_free;
+ * lvs: lv_name|vg_name|lv_size; pvs: pv_name|vg_name|pv_size.
+ */
 export function parseLvm(block: string): StoragePools["lvm"] {
   const volumeGroups: LvmVolumeGroup[] = [];
   const logicalVolumes: LvmLogicalVolume[] = [];
   const physicalVolumes: LvmPhysicalVolume[] = [];
 
+  let section = 0;
   for (const rawLine of block.split(/\r?\n/)) {
     const line = rawLine.trim();
     if (!line) {
       continue;
     }
-    const columns = line.split(/\s+/);
-    if (columns.length < 2) {
+    if (line === "---") {
+      section += 1;
       continue;
     }
 
-    const first = columns[0] ?? "";
-    const second = columns[1] ?? "";
-
-    // `lvm fullreport` groups by type; identify rows heuristically by column shape.
-    if (second === "vg" || /^vg\d+/.test(first)) {
-      const [, , name = "", , size = "", free = ""] = columns;
-      if (name) {
-        volumeGroups.push({ name, size, free });
-      }
-    } else if (second === "lv" || /^lv\d+/.test(first)) {
-      const [, , name = "", vg = "", size = ""] = columns;
-      if (name) {
-        logicalVolumes.push({ name, volumeGroup: vg, size });
-      }
-    } else if (columns.length === 2 && /^\/dev\//.test(first)) {
-      physicalVolumes.push({ name: first, volumeGroup: second, size: "" });
+    const fields = line.split("|").map((field) => field.trim());
+    if (section === 0 && fields.length >= 3) {
+      // vgs --noheadings --units b: vg_name|vg_size|vg_free
+      const [name = "", size = "", free = ""] = fields;
+      if (name) volumeGroups.push({ name, size, free });
+    } else if (section === 1 && fields.length >= 3) {
+      // lvs: lv_name|vg_name|lv_size
+      const [name = "", vg = "", size = ""] = fields;
+      if (name) logicalVolumes.push({ name, volumeGroup: vg, size });
+    } else if (section === 2 && fields.length >= 2) {
+      // pvs: pv_name|vg_name|pv_size
+      const [name = "", vg = "", size = ""] = fields;
+      if (name) physicalVolumes.push({ name, volumeGroup: vg, size });
     }
   }
 
   return {
-    present: block.trim().length > 0,
+    present: volumeGroups.length > 0 || logicalVolumes.length > 0 || physicalVolumes.length > 0,
     volumeGroups,
     logicalVolumes,
     physicalVolumes
@@ -331,35 +341,54 @@ export function parseBtrfs(block: string): StoragePools["btrfs"] {
     }
     const labelMatch = /^Label:\s*(\S+)?\s+uuid:/.exec(line);
     if (labelMatch) {
-      currentPool = labelMatch[1] && labelMatch[1] !== "none" ? labelMatch[1] : "btrfs";
+      // Labels are quoted when they contain spaces or lookups ('main');
+      // strip the quotes for the pool name.
+      const rawLabel = labelMatch[1] ?? "";
+      const label = rawLabel.replace(/^(?:'|"|`)|(?:'|"|`)$/g, "");
+      currentPool = label && label !== "none" ? label : "btrfs";
       continue;
     }
-    const deviceMatch = /^\/dev\/\S+/.exec(line);
-    if (deviceMatch) {
-      devices.push({ pool: currentPool, device: line.split(/\s+/)[0] ?? "" });
+    // `btrfs filesystem show` device lines look like:
+    //   \tdevid    1 size 2.00GiB used 512.00MiB path /dev/sda
+    const pathMatch = /\bpath\s+(\/dev\/\S+)/.exec(line);
+    if (pathMatch && pathMatch[1]) {
+      devices.push({ pool: currentPool, device: pathMatch[1] });
     }
   }
-  return { present: block.trim().length > 0, devices };
+  return { present: devices.length > 0, devices };
 }
 
+/**
+ * Parse `lsblk -P -o NAME,SIZE,TYPE,FSTYPE,MOUNTPOINT,MODEL` output:
+ * `NAME="sda" SIZE="2T" TYPE="disk" ...`. KEY="value" pairs survive blank
+ * columns (unlike plain-column output, where they misalign).
+ */
 export function parseLsblk(block: string): BlockDevice[] {
   const out: BlockDevice[] = [];
-  for (const line of block.split(/\r?\n/)) {
-    const trimmed = line.trim();
-    if (!trimmed || /^NAME\b/.test(trimmed)) {
+  for (const rawLine of block.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line || !line.startsWith("NAME=")) {
       continue;
     }
-    const parts = trimmed.split(/\s+/);
-    if (parts.length < 3) {
+    const map: Record<string, string> = {};
+    const pair = /([A-Z_]+)="((?:[^"\\]|\\.)*)"/g;
+    let match: RegExpExecArray | null;
+    while ((match = pair.exec(line)) !== null) {
+      if (match[1]) {
+        map[match[1]] = (match[2] ?? "").replace(/\\(.)/g, "$1");
+      }
+    }
+    if (!map.NAME) {
       continue;
     }
-    const type = parts[2] ?? "";
-    const [name = "", size = ""] = parts;
-    // Columns after TYPE are optional; fstype/mountpoint/model may be empty.
-    const fstype = parts[3] ?? "";
-    const mountpoint = parts[4] ?? "";
-    const model = parts.slice(5).join(" ");
-    out.push({ name, size, type, fstype, mountpoint, model });
+    out.push({
+      name: map.NAME,
+      size: map.SIZE ?? "",
+      type: map.TYPE ?? "",
+      fstype: map.FSTYPE ?? "",
+      mountpoint: map.MOUNTPOINT ?? "",
+      model: map.MODEL ?? ""
+    });
   }
   return out;
 }

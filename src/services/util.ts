@@ -93,6 +93,18 @@ export async function planOrExecute(
   }
 
   const pending = ctx.confirmations.consume(confirmationToken, plan.action);
+
+  // The plan is rebuilt from the CURRENT call's arguments, so comparing its
+  // payload against the token's plan-time payload catches a caller that
+  // confirms with arguments different from those that were reviewed.
+  const mismatch = payloadMismatch(plan.payload, pending.payload);
+  if (mismatch) {
+    throw new Error(
+      `Confirmation token was issued for different arguments (${mismatch}). ` +
+        "The token executes exactly what was planned. Re-run the tool without a token for a fresh dry-run plan with the current arguments."
+    );
+  }
+
   const results: ExecResult[] = [];
   for (const command of commandsFromPending(pending)) {
     // Execute every planned command; report exit codes rather than aborting so
@@ -120,6 +132,29 @@ export function makePlan(input: {
     ...(input.note ? { note: input.note } : {}),
     payload: input.payload ?? {}
   };
+}
+
+/**
+ * Compare the current call's payload against the token's plan-time payload
+ * (ignoring the internal `__commands` field). Returns a mismatch reason or
+ * null when they describe the same action.
+ */
+export function payloadMismatch(
+  current: Record<string, unknown>,
+  pending: Record<string, unknown>
+): string | null {
+  for (const [key, value] of Object.entries(current)) {
+    if (key === "__commands") {
+      continue;
+    }
+    if (!(key in pending)) {
+      return `unknown field "${key}"`;
+    }
+    if (JSON.stringify(pending[key]) !== JSON.stringify(value)) {
+      return `field "${key}" changed between plan and confirm`;
+    }
+  }
+  return null;
 }
 
 /**
@@ -216,14 +251,16 @@ export function parseFindOutput(stdout: string): FoundEntry[] {
     if (!line) {
       continue;
     }
-    const firstTab = line.indexOf("\t");
-    const secondTab = line.indexOf("\t", firstTab + 1);
-    if (firstTab === -1 || secondTab === -1) {
+    // GNU find `-printf '%s\t%T@\t%p\n'` uses tabs; the BusyBox fallback
+    // pipes through `stat -c '%s|%Y|%n'`, which uses '|'. Size and mtime are
+    // plain digits, so splitting on the first two separators is unambiguous.
+    const match = /^(\S+)[\t|](\S+)[\t|](.+)$/.exec(line);
+    if (!match) {
       continue;
     }
-    const sizeRaw = line.slice(0, firstTab);
-    const mtimeRaw = line.slice(firstTab + 1, secondTab);
-    const path = line.slice(secondTab + 1);
+    const sizeRaw = match[1] ?? "";
+    const mtimeRaw = match[2] ?? "";
+    const path = match[3] ?? "";
     if (!path) {
       continue;
     }

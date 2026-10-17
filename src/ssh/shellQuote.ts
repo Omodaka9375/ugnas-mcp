@@ -10,7 +10,3 @@ export function shq(value: string): string {
   // Wrap in single quotes; a literal single quote becomes: '\''
   return `'${value.replace(/'/g, `'\\''`)}'`;
 }
-
-export function shqArgs(values: readonly string[]): string {
-  return values.map(shq).join(" ");
-}

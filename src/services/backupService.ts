@@ -25,7 +25,7 @@ export class BackupService {
   create(input: { path: string; destinationDir: string; name?: string; token?: string }): Promise<ToolOutcome> {
     const source = resolveRemotePath(this.ctx.config, input.path);
     const destinationDir = resolveRemotePath(this.ctx.config, input.destinationDir);
-    const archiveName = input.name ?? `backup-${stamp()}.tar.gz`;
+    const archiveName = posix.basename(input.name ?? `backup-${stamp()}.tar.gz`);
     const archivePath = posix.join(destinationDir, archiveName);
     const command = `mkdir -p ${shq(destinationDir)} && tar -czf ${shq(archivePath)} -C ${shq(source)} .`;
 
@@ -111,7 +111,11 @@ export class BackupService {
   }): Promise<ToolOutcome> {
     const source = resolveRemotePath(this.ctx.config, input.path);
     const destinationDir = resolveRemotePath(this.ctx.config, input.destinationDir);
-    const name = input.name ?? "backup";
+    // `name` lands inside a shell script and a crontab line — keep it a safe
+    // single word (letters, digits, dot, underscore, dash only).
+    const name = safeJobName(input.name);
+    // `cron` becomes five fields of a crontab entry — nothing else.
+    const cron = safeCronExpression(input.cron);
     const scriptDir = posix.join(this.ctx.config.defaultShare, ".ugnas-mcp");
     const scriptPath = posix.join(scriptDir, `${name}.sh`);
 
@@ -129,17 +133,17 @@ export class BackupService {
       .map(shq)
       .join(" ")} > ${shq(scriptPath)} && chmod +x ${shq(scriptPath)}`;
 
-    const cronLine = `${input.cron} ${scriptPath} # UGNAS_MCP_BACKUP:${name}`;
+    const cronLine = `${cron} ${scriptPath} # UGNAS_MCP_BACKUP:${name}`;
     const marker = `UGNAS_MCP_BACKUP:${name}`;
-    const installCron = `( crontab -l 2>/dev/null | grep -v ${shq(marker)} ; echo ${shq(cronLine)} ) | crontab -`;
+    const installCron = `( crontab -l 2>/dev/null | grep -vF ${shq(marker)} ; echo ${shq(cronLine)} ) | crontab -`;
 
     return planOrExecute(
       this.ctx,
       makePlan({
         action: "backup.schedule",
-        summary: `Install cron schedule "${input.cron}" running ${name} backups of ${source} into ${destinationDir}.`,
+        summary: `Install cron schedule "${cron}" running ${name} backups of ${source} into ${destinationDir}.`,
         commands: [writeScript, installCron],
-        payload: { path: source, destinationDir, cron: input.cron, name, scriptPath },
+        payload: { path: source, destinationDir, cron, name, scriptPath },
         warnings: [
           "This modifies your user crontab (it preserves existing non-managed entries).",
           "The scheduled job runs as the SSH user; ensure it can read the source and write the destination."
@@ -148,6 +152,32 @@ export class BackupService {
       input.token
     );
   }
+}
+
+/** Job names land inside shell scripts and crontab lines — words only. */
+function safeJobName(input: string | undefined): string {
+  const fallback = "backup";
+  const value = (input ?? "").trim();
+  if (!/^[A-Za-z0-9._-]+$/.test(value)) {
+    if (input === undefined) {
+      return fallback;
+    }
+    throw new Error(
+      `Backup job name must contain only letters, digits, dot, underscore or dash (got "${input}").`
+    );
+  }
+  return value;
+}
+
+/** A cron expression is exactly five whitespace-separated fields — no more, no less. */
+function safeCronExpression(input: string): string {
+  const fields = input.trim().split(/\s+/);
+  if (fields.length !== 5 || fields.some((field) => !/^[*@A-Za-z0-9,\-/]+$/u.test(field))) {
+    throw new Error(
+      `Cron expression must be exactly five fields, e.g. "0 3 * * *" (got "${input}").`
+    );
+  }
+  return fields.join(" ");
 }
 
 function stamp(): string {

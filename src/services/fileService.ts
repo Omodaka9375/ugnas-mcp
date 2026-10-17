@@ -8,6 +8,7 @@ import {
   makePlan,
   parseFindOutput,
   parseLsLong,
+  payloadMismatch,
   planOrExecute,
   resolveRemotePath,
   resolveRemotePathPreserveTrailing,
@@ -17,16 +18,66 @@ import {
   type ToolOutcome
 } from "./util.js";
 
+/** Probe: does `ls` support GNU `--time-style=long-iso`? (BusyBox does not.) */
+export const LS_ISO_PROBE =
+  "ls --time-style=long-iso -d / >/dev/null 2>&1 && echo yes || echo no";
+
+/** Probe: does `find` support GNU `-printf`? (BusyBox does not.) */
+export const FIND_PRINTF_PROBE =
+  "find / -maxdepth 0 -printf x >/dev/null 2>&1 && echo yes || echo no";
+
 export class FileService {
+  private lsIsoProbe: Promise<boolean> | null = null;
+  private findPrintfProbe: Promise<boolean> | null = null;
+
   constructor(private readonly ctx: ServiceContext) {}
+
+  private async toolYesNo(probeCommand: string): Promise<boolean> {
+    try {
+      const { stdout } = await execChecked(this.ctx.executor, probeCommand, { allowNonZero: true });
+      return stdout.trim() === "yes";
+    } catch {
+      return false;
+    }
+  }
+
+  /** Capability probes are cached per service instance (one round-trip each). */
+  private async gnuLs(): Promise<boolean> {
+    this.lsIsoProbe ??= this.toolYesNo(LS_ISO_PROBE);
+    return this.lsIsoProbe;
+  }
+
+  private async gnuFind(): Promise<boolean> {
+    this.findPrintfProbe ??= this.toolYesNo(FIND_PRINTF_PROBE);
+    return this.findPrintfProbe;
+  }
 
   async list(directory: string): Promise<{ path: string; entries: ParsedLsEntry[] }> {
     const resolved = resolveRemotePath(this.ctx.config, directory);
-    const { stdout } = await execChecked(
-      this.ctx.executor,
-      `ls -la --time-style=long-iso ${shq(resolved)} 2>&1 || true`
-    );
-    return { path: resolved, entries: parseLsLong(stdout) };
+
+    let stdout: string;
+    if (await this.gnuLs()) {
+      ({ stdout } = await execChecked(
+        this.ctx.executor,
+        `ls -la --time-style=long-iso ${shq(resolved)} 2>&1 || true`
+      ));
+    } else {
+      // BusyBox fallback: names with a dir marker ('/' suffix); sizes unknown.
+      ({ stdout } = await execChecked(
+        this.ctx.executor,
+        `ls -1p ${shq(resolved)} 2>&1 || true`
+      ));
+    }
+
+    const entries = await this.gnuLs()
+      .then((gnu) => (gnu ? parseLsLong(stdout) : parseLsPlain(stdout)));
+
+    // A nonexistent path must not masquerade as an empty directory.
+    if (entries.length === 0 && /No such file or directory/.test(stdout)) {
+      throw new Error(`Path not found on the NAS: ${resolved}`);
+    }
+
+    return { path: resolved, entries };
   }
 
   /**
@@ -53,7 +104,13 @@ export class FileService {
     if (type === "file" || type === "dir") {
       parts.push("-type", type === "file" ? "f" : "d");
     }
-    parts.push("-printf", shq("%s\\t%T@\\t%p\\n"));
+    if (await this.gnuFind()) {
+      parts.push("-printf", shq("%s\\t%T@\\t%p\\n"));
+    } else {
+      // BusyBox fallback: no -printf, but -exec + stat -c works; '|'
+      // separators are parsed by parseFindOutput.
+      parts.push("-exec", "stat", "-c", shq("%s|%Y|%n"), "{}", "+");
+    }
     // `find` exits non-zero when it can't descend into some subdirectory
     // (permission denied); we still want the results it did produce.
     parts.push("2>/dev/null || true");
@@ -90,14 +147,18 @@ export class FileService {
     width?: number;
     time?: string;
     localPath: string;
-  }): Promise<{
-    source: string;
-    localPath: string;
-    kind: "image" | "video";
-    width: number;
-    bytes: number;
-    engine: string;
-  }> {
+    token?: string;
+  }): Promise<
+    | {
+        source: string;
+        localPath: string;
+        kind: "image" | "video";
+        width: number;
+        bytes: number;
+        engine: string;
+      }
+    | ToolOutcome
+  > {
     const source = resolveRemotePath(this.ctx.config, input.path);
     const width = Math.min(Math.max(input.width ?? 640, 16), 4096);
     const kind = mediaKind(input.path);
@@ -150,6 +211,29 @@ export class FileService {
         throw new Error(`Thumbnail file ${remoteTemp} was empty after generation for ${source}.`);
       }
       const bytes = Buffer.from(base64, "base64");
+
+      // Writing to the local machine is a mutation of the MCP host — gate it
+      // behind the same dry-run/confirm flow as files.download.
+      const plan = makePlan({
+        action: "files.thumbnail",
+        summary: `Render a thumbnail of ${source} and write it to local file ${input.localPath} (width ${width}, ${kind}).`,
+        commands: [
+          `ffmpeg (on NAS) -> ${remoteTemp} -> base64 -> local ${input.localPath}`
+        ],
+        payload: { source, localPath: input.localPath, kind, width }
+      });
+      if (!input.token) {
+        return this.ctx.confirmations.issue(plan);
+      }
+      const pending = this.ctx.confirmations.consume(input.token, plan.action);
+      const mismatch = payloadMismatch(plan.payload, pending.payload);
+      if (mismatch) {
+        throw new Error(
+          `Confirmation token was issued for different arguments (${mismatch}). ` +
+            "Re-run the tool without a token for a fresh dry-run plan with the current arguments."
+        );
+      }
+
       writeFileSync(input.localPath, bytes);
       return {
         source,
@@ -186,7 +270,6 @@ export class FileService {
     const { stdout } = await execChecked(this.ctx.executor, command);
     return { path: resolved, report: stdout.trim() };
   }
-
   makeDirectory(input: { path: string; token?: string }): Promise<ToolOutcome> {
     const resolved = resolveRemotePath(this.ctx.config, input.path);
     return planOrExecute(
@@ -445,4 +528,35 @@ function mediaKind(path: string): "image" | "video" {
 function globToRegExp(glob: string): RegExp {
   const escaped = glob.replace(/[.+^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*").replace(/\?/g, ".");
   return new RegExp(`^${escaped}$`, "i");
+}
+
+/**
+ * Parse BusyBox `ls -1p` output (the fallback when GNU --time-style is not
+ * available): one name per line, a trailing '/' marking a directory. Sizes and
+ * mtimes are unknown, so they are zeroed out rather than invented.
+ */
+export function parseLsPlain(stdout: string): ParsedLsEntry[] {
+  const entries: ParsedLsEntry[] = [];
+  for (const rawLine of stdout.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line || /No such file or directory/.test(line) || line === "total 0") {
+      continue;
+    }
+    const isDir = line.endsWith("/");
+    const name = isDir ? line.slice(0, -1) : line;
+    if (!name || name === "." || name === "..") {
+      continue;
+    }
+    entries.push({
+      permissions: isDir ? "d" : "-",
+      links: 0,
+      owner: "",
+      group: "",
+      sizeBytes: 0,
+      modified: "",
+      name,
+      type: isDir ? "dir" : "file"
+    });
+  }
+  return entries;
 }

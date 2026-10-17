@@ -256,15 +256,32 @@ describe("files.thumbnail", () => {
     const dir = mkdtempSync(join(tmpdir(), "ugnas-thumb-"));
     const out = join(dir, "thumb.jpg");
     try {
-      const result = await files.thumbnail({
+      // The local write is gated now: the first call returns a dry-run plan.
+      const plan = await files.thumbnail({
         path: "media/movie.mkv",
         localPath: out,
         width: 320,
         time: "00:00:05"
       });
+      if (!("confirmationToken" in plan)) {
+        throw new Error("expected a dry-run plan before writing a local file");
+      }
+      expect(plan).toMatchObject({ dryRun: true, requiresConfirmation: true, action: "files.thumbnail" });
 
-      expect(result).toMatchObject({ kind: "video", width: 320, engine: "ffmpeg" });
-      expect(result.bytes).toBe(Buffer.from("fake-jpeg-bytes").length);
+      const result = await files.thumbnail({
+        path: "media/movie.mkv",
+        localPath: out,
+        width: 320,
+        time: "00:00:05",
+        token: plan.confirmationToken
+      });
+      // Narrow: an ExecutionResult (token executed commands) has no `bytes`.
+      if (result && typeof result === "object" && "source" in result) {
+        expect(result).toMatchObject({ kind: "video", width: 320, engine: "ffmpeg" });
+        expect(result.bytes).toBe(Buffer.from("fake-jpeg-bytes").length);
+      } else {
+        throw new Error("expected an executed thumbnail result after confirmation");
+      }
       expect(readFileSync(out, "utf8")).toBe("fake-jpeg-bytes");
 
       const ffmpegCmd = executor.commands.find((c) => c.startsWith("ffmpeg"));
@@ -319,13 +336,21 @@ describe("system.pools", () => {
         "###MDSTAT###",
         mdstat,
         "###LVM###",
-        "",
+        // vgs | --- | lvs | --- | pvs  (separator '|', units b)
+        "vg1|399922319360|209713184768",
+        "---",
+        "root|vg1|53687091200",
+        "data|vg1|399922319360",
+        "---",
+        "/dev/sda3|vg1|199930000000",
+        "/dev/sdb3|vg1|199930000000",
         "###BTRFS###",
-        "",
+        "Label: 'main'  uuid: 1111",
+        "\tdevid\t1 size 2.00GiB used 512.00MiB path /dev/sda",
+        "\tdevid\t2 size 2.00GiB used 512.00MiB path /dev/sdb",
         "###LSBLK###",
-        "NAME   SIZE TYPE FSTYPE MOUNTPOINT MODEL",
-        "sda    2T   disk",
-        "",
+        'NAME="sda" SIZE="2T" TYPE="disk" FSTYPE="" MOUNTPOINT="" MODEL="CRUCIAL CT2000"',
+        'NAME="sda1" SIZE="512M" TYPE="part" FSTYPE="ext4" MOUNTPOINT="/volume1" MODEL=""',
         "###BLKID###",
         '/dev/sda1: UUID="abc" TYPE="ext4"'
       ].join("\n")
@@ -336,7 +361,20 @@ describe("system.pools", () => {
     expect(pools.mdstat).toHaveLength(2);
     expect(pools.mdstat[0]).toMatchObject({ name: "md0", level: "raid1", members: ["sda1", "sdb1"] });
     expect(pools.mdstat[1]).toMatchObject({ name: "md1", degraded: true });
-    expect(pools.blockDevices[0]).toMatchObject({ name: "sda", size: "2T", type: "disk" });
+    expect(pools.lvm.present).toBe(true);
+    expect(pools.lvm.volumeGroups[0]).toMatchObject({ name: "vg1" });
+    expect(pools.lvm.logicalVolumes).toHaveLength(2);
+    expect(pools.lvm.physicalVolumes).toHaveLength(2);
+    expect(pools.btrfs.present).toBe(true);
+    expect(pools.btrfs.devices[0]).toMatchObject({ pool: "main", device: "/dev/sda" });
+    // KEY="value" pairs survive blank columns (sda has empty fstype/mountpoint).
+    expect(pools.blockDevices[0]).toMatchObject({
+      name: "sda",
+      size: "2T",
+      type: "disk",
+      model: "CRUCIAL CT2000"
+    });
+    expect(pools.blockDevices[1]).toMatchObject({ name: "sda1", type: "part", fstype: "ext4", mountpoint: "/volume1" });
     expect(pools.filesystems[0]).toMatchObject({ device: "/dev/sda1", uuid: "abc", type: "ext4" });
   });
 });
@@ -382,6 +420,10 @@ describe("read parsing", () => {
 
   it("lists directories including names with spaces", async () => {
     const executor = new FakeExecutor();
+    // GNU ls probe answers yes so the --time-style path is used.
+    executor.when("ls --time-style=long-iso -d / >/dev/null 2>&1 && echo yes || echo no", {
+      stdout: "yes"
+    });
     executor.when("ls -la --time-style=long-iso '/volume1/media' 2>&1 || true", {
       stdout: [
         "total 8",
