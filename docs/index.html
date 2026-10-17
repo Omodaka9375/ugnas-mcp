@@ -50,7 +50,7 @@
     * { box-sizing: border-box; }
     ::selection { background: var(--sel); color: var(--sel-text); }
 
-    html { scroll-becavior: smooth; }
+    html { scroll-behavior: smooth; }
     body {
       margin: 0;
       background: var(--paper);
@@ -97,11 +97,17 @@
       border-top: 1px solid var(--rule);
       font-family: var(--mono);
     }
-    .specs > div { padding: 12px 16px 12px 0; border-right: 1px solid var(--rule); border-bottom: 1px solid var(--rule); margin-bottom: -1px; }
+    .specs > div {
+      padding: 14px 20px;
+      border-right: 1px solid var(--rule);
+      border-bottom: 1px solid var(--rule);
+      margin-bottom: -1px;
+    }
     .specs > div:last-child { border-right: 0; }
-    .specs dt { font-size: 0.66rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-4); margin-bottom: 3px; }
-    .specs dd { margin: 0; font-size: 0.95rem; font-weight: 600; }
-    @media (max-width: 640px) { .specs > div { border-right: 0; } }
+    @media (max-width: 640px) {
+      .specs > div { border-right: 0; }
+      .specs > div:not(:first-child) { border-top: 0; }
+    }
 
     /* ————— sections ————— */
     section { border-bottom: 1px solid var(--rule); }
@@ -149,20 +155,55 @@
       table.blocks td:first-child { padding: 16px 0 4px; }
     }
 
-    /* ————— safety flow: ruled figure ————— */
-    figure.flow { margin: 0; border: 1px solid var(--rule-dark); background: var(--paper-2); }
-    figure.flow pre {
-      margin: 0; padding: 28px clamp(18px, 3vw, 36px);
-      font-family: var(--mono); font-size: clamp(0.7rem, 1.6vw, 0.8rem);
-      line-height: 1.85; overflow-x: auto; color: var(--ink);
+    /* ————— safety flow: HTML step diagram ————— */
+    figure.flow { margin: 0; }
+    .steps { display: flex; flex-direction: column; gap: 0; border: 1px solid var(--rule-dark); background: var(--paper-2); }
+    .step {
+      display: grid;
+      grid-template-columns: 64px 110px 1fr;
+      gap: 0;
+      align-items: stretch;
+      border-bottom: 1px solid var(--rule);
     }
-    figure.flow pre .dim { color: var(--ink-4); }
-    figure.flow pre .em { color: var(--ink); font-weight: 700; }
+    .step:last-child { border-bottom: 0; }
+    .step .n {
+      font-family: var(--mono); font-size: 0.9rem; font-weight: 700;
+      display: flex; align-items: center; justify-content: center;
+      border-right: 1px solid var(--rule);
+      background: var(--paper-3); color: var(--ink-2);
+      padding: 16px 0;
+    }
+    .step:not(.plain) .who {
+      font-family: var(--mono); font-size: 0.62rem; font-weight: 700;
+      letter-spacing: 0.14em; text-transform: uppercase;
+      display: flex; align-items: center;
+      border-right: 1px solid var(--rule);
+      background: var(--paper-3);
+      padding: 16px;
+    }
+    .step .body { padding: 14px 20px; }
+    .step .body p { margin: 0; font-size: 0.88rem; color: var(--ink-2); }
+    .step .body code { background: var(--paper); border: 1px solid var(--rule); padding: 1px 5px; font-size: 0.78rem; }
+    .step.split .body { display: flex; flex-direction: column; gap: 0; padding: 0; }
+    .step.split .branch { padding: 14px 20px; display: grid; grid-template-columns: 88px 1fr; gap: 14px; align-items: baseline; }
+    .step.split .branch + .branch { border-top: 1px dashed var(--rule); }
+    .branch .label { font-family: var(--mono); font-size: 0.62rem; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink-4); }
+    .branch.reject .label { color: var(--ink-3); }
+    .step.tokens { background: var(--ink); color: var(--paper); }
+    .step.tokens .n { background: transparent; border-right-color: rgba(255,255,255,0.25); color: var(--paper); }
+    .step.tokens .body p { color: #d8d8d6; }
+    .step.tokens .body p b { color: var(--paper); }
     figure.flow figcaption {
       border-top: 1px solid var(--rule);
-      padding: 10px clamp(18px, 3vw, 36px);
+      margin-top: 14px;
       font-family: var(--mono); font-size: 0.7rem; letter-spacing: 0.08em;
       text-transform: uppercase; color: var(--ink-3);
+      padding: 0;
+    }
+    @media (max-width: 640px) {
+      .step { grid-template-columns: 44px 1fr; }
+      .step .who { display: none; }
+      .step.split .branch { grid-template-columns: 1fr; gap: 4px; }
     }
 
     /* ————— pull-quote style callouts ————— */
@@ -327,24 +368,43 @@
       </p>
 
       <figure class="flow">
-        <pre><span class="dim">  caller                    ugnas-mcp                       the NAS
-  ───────                   ─────────                       ───────
-
-  files.remove</span>
-      <span class="dim">path:</span> "media/old"   <span class="dim">────────►</span>  plan<span class="dim">:</span> <span class="em">rm -rf '/volume1/media/old'</span>
-                              <span class="dim">│</span>               <span class="dim">│</span>  nothing executes
-                              <span class="dim">│</span>               <span class="dim">▼</span>  token: single-use,
-  <span class="em">you review the plan</span>        <span class="dim">│</span>                  action-bound, 10 min
-                              <span class="dim">│</span>
-  decline ───────────────────┘               approve:
-                                               <span class="dim">confirmToken:</span> "…"
-                                                  <span class="dim">│</span>      <span class="dim">▼</span>
-                                                  <span class="dim">└──────►</span> <span class="em">runs the exact commands
-                                                            captured at plan time</span>
-                                                  <span class="dim">│</span>
-                                                  <span class="em">args cross-checked:</span>
-                                                  a token issued for different
-                                                  arguments is <span class="em">refused</span>.</pre>
+        <div class="steps">
+          <div class="step">
+            <div class="n">1</div>
+            <div class="who">caller</div>
+            <div class="body">
+              <p>Call a mutating tool with its arguments — <code>files.remove</code> with <code>path: "media/old"</code>. Nothing runs yet.</p>
+            </div>
+          </div>
+          <div class="step">
+            <div class="n">2</div>
+            <div class="who">ugnas-mcp</div>
+            <div class="body">
+              <p>Returns a <strong>dry-run plan</strong>: the exact command it would run — <code>rm -rf '/volume1/media/old'</code> — plus a summary, warnings, and a confirmation token.</p>
+            </div>
+          </div>
+          <div class="step split">
+            <div class="n">3</div>
+            <div class="who">you</div>
+            <div class="body">
+              <div class="branch">
+                <span class="label">Decline</span>
+                <p>Do nothing. The plan expires in 10 minutes; nothing ever touched the NAS.</p>
+              </div>
+              <div class="branch">
+                <span class="label">Approve</span>
+                <p>Re-call the same tool with the same arguments, plus <code>confirmToken</code>.</p>
+              </div>
+            </div>
+          </div>
+          <div class="step">
+            <div class="n">4</div>
+            <div class="who">ugnas-mcp</div>
+            <div class="body">
+              <p>Validates the token (single-use, action-bound, unexpired), <strong>cross-checks the arguments</strong> against the plan, then executes the <strong>exact commands captured at plan time</strong> — verbatim, on the NAS.</p>
+            </div>
+          </div>
+        </div>
         <figcaption>Fig. 1 — the confirmation gate. Read-only tools skip it entirely.</figcaption>
       </figure>
 
