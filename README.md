@@ -15,7 +15,7 @@ Organized the way a NAS owner actually thinks about daily operations:
 | --- | --- | --- |
 | **Connection & system** | `system.status`, `system.info`, `system.pools` | read-only |
 | **Docker** | `docker.containers.*` (list/inspect/logs/start/stop/restart/remove), `docker.images.*` (list/pull/remove), `docker.networks.*` (list/inspect/create/remove/connect/disconnect), `docker.compose` | start/stop/restart/pull/remove/create/compose are gated |
-| **Files & data** | `files.list`, `files.usage`, `files.find`, `files.thumbnail`, `files.mkdir`, `files.copy`, `files.move`, `files.remove`, `files.upload`, `files.download`, `files.sync` | mkdir/copy/move/remove/upload/download/sync are gated |
+| **Files & data** | `files.list`, `files.usage`, `files.find`, `files.thumbnail`, `files.mkdir`, `files.copy`, `files.move`, `files.remove`, `files.upload`, `files.download`, `files.sync` | thumbnail/mkdir/copy/move/remove/upload/download/sync are gated |
 | **Backup** | `backup.create`, `backup.list`, `backup.verify`, `backup.restore`, `backup.schedule` | create/restore/schedule are gated |
 | **Networks** | `network.interfaces`, `network.routes`, `network.ports` | read-only |
 
@@ -24,8 +24,14 @@ volumes, btrfs devices, block devices, and filesystems.
 
 `files.find` searches a directory tree by name glob and/or extension (returns path, size, modified
 time). `files.thumbnail` renders a preview of an image or a video frame with `ffmpeg` on the NAS and
-downloads it locally — read-only with respect to your data (only a `/tmp` scratch file is written and
-removed). Requires `ffmpeg` on the NAS (present on UGOS by default).
+downloads it locally — read-only with respect to your NAS data (only a `/tmp` scratch file is written
+and removed), but **writing the thumbnail to the local machine is gated**: the first call returns a
+dry-run plan, and you confirm with the token to write the local file. Requires `ffmpeg` on the NAS
+(present on UGOS by default).
+
+`files.list` and `files.find` prefer GNU coreutils flags (`ls --time-style=long-iso`, `find -printf`);
+when those are unavailable (BusyBox), they fall back to `ls -1p` and `find -exec stat` so they keep
+working — with size/mtime zeroed out for plain `ls` where BusyBox can't report them.
 
 ### `files.sync` and the rsync fallback
 
@@ -56,6 +62,10 @@ Read-only tools never need a token. This makes "copy my data", "pull this image"
 All user-supplied values (paths, container names, image tags) are POSIX-shell-quoted before being
 interpolated into a remote command, so they cannot break out into arbitrary command execution.
 
+At confirm time, the arguments of the confirming call are cross-checked against the plan-time
+arguments captured in the token: if they differ, the tool refuses and asks you to re-run for a fresh
+plan (so a stale token can never execute a differently-argued action).
+
 ## Configuration
 
 The server reads a JSON config from `~/.ugnas-mcp/config.json` (override with the
@@ -81,7 +91,7 @@ The server reads a JSON config from `~/.ugnas-mcp/config.json` (override with th
 | `auth` | yes | `{ "type": "key", "privateKeyPath": "..." }` (recommended, supports `passphrase`) or `{ "type": "password", "password": "..." }`. `privateKeyPath` may also be raw inline PEM. |
 | `defaultShare` | no | Base directory for **relative** tool paths, default `/volume1`. |
 | `sftpRoot` | no | The directory the **SFTP subsystem** is rooted at. On UGOS, SFTP is chrooted to the share root, so an exec path like `/volume1/docker/x` must be requested over SFTP as `/docker/x`; set this to the chroot root (defaults to `defaultShare`). Use `"/"` if your NAS does not chroot SFTP. |
-| `hostKeySha256` | no | When set, the SSH host key is pinned and enforced (e.g. `SHA256:...`). |
+| `hostKeySha256` | no | When set, the SSH host key is pinned and enforced (e.g. `SHA256:...`). Compare is padding-insensitive, so the canonical fingerprint from `ssh-keygen -lf` works as-is. |
 | `commandTimeoutMs` | no | Per-command timeout, default `60000`. |
 
 ### Environment-variable overrides
@@ -142,17 +152,21 @@ transport (both run side by side):
 UGNAS_HTTP_HOST=127.0.0.1 UGNAS_HTTP_PORT=4110 node dist/src/server.js
 ```
 
-- `POST http://127.0.0.1:4110/mcp` — JSON-RPC (stateless; a fresh session per request).
+- `POST http://127.0.0.1:4110/mcp` — JSON-RPC (stateless; a fresh session per request, max 1 MiB body).
 - `GET  http://127.0.0.1:4110/health` — liveness + target host.
 
-It binds to loopback by default; only change `UGNAS_HTTP_HOST` if you intend remote access and have
-secured it (e.g. behind a reverse proxy or VPN).
+It binds to loopback by default. `UGNAS_HTTP_HOST=0.0.0.0` (or any non-loopback address) is **refused
+unless `UGNAS_HTTP_ALLOW_REMOTE=1` is also set** — the `/mcp` endpoint has no authentication, and
+confirmation tokens are process-wide, so only opt in if the port is secured by something else
+(reverse proxy with auth, VPN, etc.).
 
 ## Prerequisites on the NAS
 
 - **SSH enabled** (UGOS: *Control Panel → Terminal & SNMP*).
 - The SSH user can run `docker` (be in the `docker` group) and, for scheduled backups, use `crontab`.
 - `tar`, `df`, `du`, `ip`, `ss` are present on UGOS — these are standard.
+- `backup.schedule` job names must be plain words (`[A-Za-z0-9._-]`) — they are embedded in a
+  generated shell script and a crontab line, so anything else is rejected up front.
 - `rsync` is **optional**, used only by `files.sync`. If it's missing you get a note explaining how
   to install it or how to enable the built-in `cp` fallback (`files.sync { fallback: "cp" }`); every
   other file tool works without rsync.
@@ -168,7 +182,8 @@ npm run smoke:http  # boots with UGNAS_HTTP_PORT and checks /health + /mcp
 ```
 
 Tests cover the confirmation-token safety gate, config loading/validation, shell quoting, rsync
-gating, and the read-parsers — all against a `FakeExecutor`, so **no real NAS is required** to run them.
+gating, the read-parsers, and the service↔tool wiring (the registered tool set is asserted to match
+the contract exactly) — all against a `FakeExecutor`, so **no real NAS is required** to run them.
 
 ## Design notes
 
