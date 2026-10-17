@@ -6,4 +6,6 @@ dist/
 .sessions/
 coverage/
 .DS_Store
-.git-commit-msg.tmp
+.git-commit-msg.tmp
+*.exe
+
