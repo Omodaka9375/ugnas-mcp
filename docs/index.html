@@ -5,471 +5,491 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>ugnas-mcp — MCP server for UGREEN NAS</title>
   <meta name="description" content="A generic MCP server for UGREEN NAS (UGOS) over SSH/SFTP — Docker, files, backups, and networks with a dry-run safety model. 39 tools, zero hard-coded targets.">
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🗄️</text></svg>">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><rect width='64' height='64' fill='black'/><text x='32' y='42' font-family='monospace' font-size='28' font-weight='bold' fill='white' text-anchor='middle'>u_</text></svg>">
   <style>
+    /* ————————————————————————————————————————
+       ugnas-mcp — monochrome editorial system
+       one ink, one paper, hairline rules, tabular grids
+       ———————————————————————————————————————— */
+
     :root {
       color-scheme: light dark;
-      --bg: #f6f8fa;
-      --card: #ffffff;
-      --ink: #1f2328;
-      --muted: #59636e;
-      --line: #d8dee4;
-      --accent: #1f6feb;
-      --accent-soft: #ddf4ff;
-      --warn: #9a6700;
-      --warn-soft: #fff8c5;
-      --danger: #cf222e;
-      --danger-soft: #ffebe9;
-      --ok: #1a7f37;
-      --ok-soft: #dafbe1;
-      --mono: ui-monospace, "Cascadia Code", "SF Mono", Menlo, Consolas, monospace;
+      /* Palette: ink / paper / 50 steps between. No hue anywhere. */
+      --ink:       #111111;
+      --ink-2:      #333333;
+      --ink-3:      #666666;
+      --ink-4:      #999999;
+      --paper:      #ffffff;
+      --paper-2:    #f4f4f2;   /* slight warm cast, avoids clinical white */
+      --paper-3:    #ececea;
+      --rule:        #d9d9d6;
+      --rule-dark:   #111111;
+      --sel:        #111111;   /* selection = inverted */
+      --sel-text:    #ffffff;
+      --serif: "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua", Georgia, "Times New Roman", serif;
+      --sans:  "Helvetica Neue", Helvetica, Inter, "Segoe UI", Arial, sans-serif;
+      --mono:  ui-monospace, "Cascadia Code", "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+      --max: 1060px;
     }
     @media (prefers-color-scheme: dark) {
       :root {
-        --bg: #0d1117;
-        --card: #161b22;
-        --ink: #e6edf3;
-        --muted: #9198a1;
-        --line: #30363d;
-        --accent: #4493f8;
-        --accent-soft: #121d2f;
-        --warn: #d29922;
-        --warn-soft: #2d2200;
-        --danger: #f85149;
-        --danger-soft: #25171c;
-        --ok: #3fb950;
-        --ok-soft: #12261e;
+        --ink:     #e8e8e6;
+        --ink-2:   #c8c8c6;
+        --ink-3:   #909090;
+        --ink-4:   #6a6a6a;
+        --paper:   #101010;
+        --paper-2: #171717;
+        --paper-3: #202020;
+        --rule:     #333333;
+        --rule-dark:#e8e8e6;
+        --sel:      #e8e8e6;
+        --sel-text: #101010;
       }
     }
+
     * { box-sizing: border-box; }
+    ::selection { background: var(--sel); color: var(--sel-text); }
+
+    html { scroll-becavior: smooth; }
     body {
       margin: 0;
-      font-family: -apple-system, "Segoe UI", Roboto, Inter, "Helvetica Neue", Arial, sans-serif;
-      background: var(--bg);
+      background: var(--paper);
       color: var(--ink);
-      line-height: 1.65;
+      font-family: var(--sans);
+      font-size: 16px;
+      line-height: 1.55;
+      -webkit-font-smoothing: antialiased;
+      text-rendering: optimizeLegibility;
     }
-    .wrap { max-width: 980px; margin: 0 auto; padding: 0 24px; }
+    .wrap { max-width: var(--max); margin: 0 auto; padding: 0 clamp(20px, 4vw, 48px); }
+    a { color: var(--ink); text-decoration: underline; text-underline-offset: 3px; text-decoration-thickness: 1px; }
+    a:hover { text-decoration-thickness: 2px; }
+    code, .mono { font-family: var(--mono); font-size: 0.85em; }
 
-    /* Hero */
-    .hero {
-      padding: 72px 0 56px;
-      background:
-        radial-gradient(1200px 400px at 20% -10%, var(--accent-soft), transparent),
-        var(--bg);
-      border-bottom: 1px solid var(--line);
-    }
-    .hero h1 {
-      font-size: clamp(2.2rem, 5vw, 3.4rem);
-      letter-spacing: -0.03em;
-      margin: 0 0 8px;
-    }
-    .hero h1 .pkg { color: var(--accent); }
-    .hero p.tagline { font-size: 1.15rem; color: var(--muted); margin: 0 0 28px; max-width: 60ch; }
-    .badges { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 32px; padding: 0; list-style: none; }
-    .badge {
-      font: 600 0.8rem/1 var(--mono);
-      padding: 6px 12px;
-      border-radius: 999px;
-      border: 1px solid var(--line);
-      background: var(--card);
-    }
-    .badge.b-accent { color: var(--accent); border-color: var(--accent); }
+    /* ————— top rule ————— */
+    .topbar { border-bottom: 1px solid var(--rule); font-family: var(--mono); font-size: 0.72rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-3); }
+    .topbar .wrap { display: flex; justify-content: space-between; padding-top: 10px; padding-bottom: 10px; }
 
-    /* Generic sections */
-    section { padding: 48px 0; border-bottom: 1px solid var(--line); }
-    section:last-of-type { border-bottom: 0; }
-    h2 { font-size: 1.6rem; letter-spacing: -0.02em; margin: 0 0 8px; }
-    h3 { font-size: 1.05rem; margin: 28px 0 8px; }
-    .lead { color: var(--muted); max-width: 72ch; margin: 0 0 24px; }
-
-    /* Cards */
-    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; }
-    .card {
-      background: var(--card);
-      border: 1px solid var(--line);
-      border-radius: 12px;
-      padding: 20px;
-    }
-    .card h3 { margin: 0 0 6px; font-size: 1.05rem; }
-    .card p { margin: 0; color: var(--muted); font-size: 0.95rem; }
-    .card .icon { font-size: 1.6rem; display: block; margin-bottom: 10px; }
-
-    /* Flow diagram */
-    .flow {
+    /* ————— masthead ————— */
+    .masthead { border-bottom: 3px solid var(--rule-dark); }
+    .masthead .wrap { padding-top: clamp(56px, 10vh, 110px); padding-bottom: clamp(36px, 6vh, 64px); }
+    .masthead h1 {
       font-family: var(--mono);
-      font-size: 0.85rem;
-      background: var(--card);
-      border: 1px solid var(--line);
-      border-radius: 12px;
-      padding: 24px;
-      overflow-x: auto;
-      white-space: pre;
-      line-height: 1.7;
+      font-size: clamp(2.6rem, 8vw, 5.2rem);
+      line-height: 1;
+      font-weight: 700;
+      letter-spacing: -0.04em;
+      margin: 0 0 20px;
     }
-    .flow .c { color: var(--accent); }
-    .flow .g { color: var(--ok); }
-    .flow .r { color: var(--danger); }
-    .flow .m { color: var(--muted); }
+    .masthead h1 .cursor { color: var(--ink-4); font-weight: 400; }
+    .masthead .dek {
+      font-family: var(--serif);
+      font-size: clamp(1.15rem, 2.4vw, 1.45rem);
+      line-height: 1.4;
+      max-width: 44ch;
+      margin: 0 0 32px;
+      color: var(--ink-2);
+    }
+    .masthead .dek strong { color: var(--ink); font-weight: 600; }
+    .specs {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+      border-top: 1px solid var(--rule);
+      font-family: var(--mono);
+    }
+    .specs > div { padding: 12px 16px 12px 0; border-right: 1px solid var(--rule); border-bottom: 1px solid var(--rule); margin-bottom: -1px; }
+    .specs > div:last-child { border-right: 0; }
+    .specs dt { font-size: 0.66rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-4); margin-bottom: 3px; }
+    .specs dd { margin: 0; font-size: 0.95rem; font-weight: 600; }
+    @media (max-width: 640px) { .specs > div { border-right: 0; } }
 
-    /* Tool explorer */
-    .toolbar { display: flex; flex-wrap: wrap; gap: 8px; margin: 20px 0 16px; }
-    .chip {
-      font: 500 0.85rem var(--mono);
-      padding: 6px 14px;
-      border-radius: 999px;
-      border: 1px solid var(--line);
-      background: var(--card);
-      color: var(--ink);
-      cursor: pointer;
-    }
-    .chip[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: #fff; }
-    #tool-search {
-      font: 400 0.95rem var(--mono);
-      padding: 8px 14px;
-      border-radius: 8px;
-      border: 1px solid var(--line);
-      background: var(--card);
-      color: var(--ink);
-      width: 220px;
-      flex-grow: 1;
-      max-width: 320px;
-    }
-    .tools { display: grid; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); gap: 10px; }
-    .tool {
-      display: flex;
-      align-items: baseline;
-      justify-content: space-between;
-      gap: 10px;
-      background: var(--card);
-      border: 1px solid var(--line);
-      border-radius: 10px;
-      padding: 12px 14px;
-    }
-    .tool.hidden { display: none; }
-    .tool code { font: 600 0.82rem var(--mono); }
-    .tool .desc { color: var(--muted); font-size: 0.8rem; flex: 1 1 100%; margin-top: 2px; }
-    .tool .row { display: flex; align-items: baseline; justify-content: space-between; width: 100%; gap: 10px; }
-    .pill {
-      font: 600 0.68rem var(--mono);
-      padding: 3px 8px;
-      border-radius: 999px;
-      white-space: nowrap;
-      letter-spacing: 0.04em;
+    /* ————— sections ————— */
+    section { border-bottom: 1px solid var(--rule); }
+    section .wrap { padding-top: clamp(44px, 7vw, 76px); padding-bottom: clamp(44px, 7vw, 76px); }
+    .kicker {
+      font-family: var(--mono);
+      font-size: 0.7rem;
+      font-weight: 700;
+      letter-spacing: 0.18em;
       text-transform: uppercase;
+      margin: 0 0 8px;
+      color: var(--ink);
     }
-    .pill.ro { color: var(--ok); background: var(--ok-soft); }
-    .pill.mut { color: var(--warn); background: var(--warn-soft); }
-    .pill.des { color: var(--danger); background: var(--danger-soft); }
-    #tool-count { color: var(--muted); font-size: 0.85rem; margin: 12px 0 0; }
+    .kicker::before { content: "§ "; color: var(--ink-4); }
+    h2 {
+      font-family: var(--serif);
+      font-size: clamp(1.7rem, 3.4vw, 2.3rem);
+      font-weight: 500;
+      letter-spacing: -0.01em;
+      line-height: 1.15;
+      margin: 0 0 14px;
+    }
+    .lead { font-size: 1.02rem; max-width: 68ch; color: var(--ink-2); margin: 0 0 32px; }
+    .lead a { color: var(--ink); }
 
-    /* Code + config */
+    /* numbered section markers, right-aligned */
+    .sec-head { display: flex; align-items: baseline; justify-content: space-between; gap: 24px; margin-bottom: 14px; }
+    .sec-head h2 { margin: 0; }
+    .sec-no { font-family: var(--mono); font-size: 0.75rem; color: var(--ink-4); white-space: nowrap; }
+
+    /* ————— feature table (not cards) ————— */
+    table.blocks { width: 100%; border-collapse: collapse; font-size: 0.92rem; }
+    table.blocks td, table.blocks th { text-align: left; vertical-align: top; padding: 18px 20px 18px 0; border-bottom: 1px solid var(--rule); }
+    table.blocks th {
+      font-family: var(--mono); font-weight: 700; font-size: 0.66rem;
+      letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink-4);
+      padding-top: 0;
+    }
+    table.blocks td:first-child { font-family: var(--mono); font-size: 0.8rem; font-weight: 700; white-space: nowrap; color: var(--ink); padding-right: 32px; }
+    table.blocks td { color: var(--ink-2); }
+    table.blocks td b { color: var(--ink); font-weight: 600; }
+    @media (max-width: 720px) {
+      table.blocks, table.blocks tbody, table.blocks tr, table.blocks td, table.blocks th { display: block; width: 100%; }
+      table.blocks th { display: none; }
+      table.blocks td:first-child { padding: 16px 0 4px; }
+    }
+
+    /* ————— safety flow: ruled figure ————— */
+    figure.flow { margin: 0; border: 1px solid var(--rule-dark); background: var(--paper-2); }
+    figure.flow pre {
+      margin: 0; padding: 28px clamp(18px, 3vw, 36px);
+      font-family: var(--mono); font-size: clamp(0.7rem, 1.6vw, 0.8rem);
+      line-height: 1.85; overflow-x: auto; color: var(--ink);
+    }
+    figure.flow pre .dim { color: var(--ink-4); }
+    figure.flow pre .em { color: var(--ink); font-weight: 700; }
+    figure.flow figcaption {
+      border-top: 1px solid var(--rule);
+      padding: 10px clamp(18px, 3vw, 36px);
+      font-family: var(--mono); font-size: 0.7rem; letter-spacing: 0.08em;
+      text-transform: uppercase; color: var(--ink-3);
+    }
+
+    /* ————— pull-quote style callouts ————— */
+    .note {
+      border-left: 3px solid var(--rule-dark);
+      padding: 4px 0 4px 22px;
+      margin: 28px 0;
+      max-width: 72ch;
+    }
+    .note p { margin: 0; font-size: 0.95rem; color: var(--ink-2); }
+    .note b { color: var(--ink); }
+    .note + .note { margin-top: -8px; }
+
+    /* ————— code ————— */
     pre.code {
-      font-family: var(--mono);
-      font-size: 0.84rem;
-      background: var(--card);
-      border: 1px solid var(--line);
-      border-radius: 12px;
-      padding: 18px 20px;
+      background: var(--paper-2);
+      border: 1px solid var(--rule);
+      border-left: 3px solid var(--rule-dark);
+      padding: 20px 24px;
+      margin: 24px 0;
+      font-family: var(--mono); font-size: 0.8rem; line-height: 1.7;
       overflow-x: auto;
-      line-height: 1.6;
     }
-    pre.code .cm { color: var(--muted); }
-
-    /* Callouts */
-    .callout {
-      display: flex;
-      gap: 14px;
-      background: var(--accent-soft);
-      border: 1px solid var(--line);
-      border-radius: 12px;
-      padding: 16px 18px;
-      margin: 20px 0;
+    pre.code .cm { color: var(--ink-4); }
+    pre.code + h3, .note + h3 { margin-top: 40px; }
+    h3 {
+      font-family: var(--mono); font-size: 0.78rem; font-weight: 700;
+      letter-spacing: 0.14em; text-transform: uppercase;
+      margin: 40px 0 12px; color: var(--ink);
     }
-    .callout .icon { font-size: 1.3rem; }
-    .callout p { margin: 0; font-size: 0.95rem; }
 
-    /* Footer */
-    footer { padding: 40px 0 64px; color: var(--muted); font-size: 0.9rem; }
-    footer a { color: var(--accent); }
-    a { color: var(--accent); }
-
-    @media (max-width: 640px) {
-      .hero { padding: 48px 0 40px; }
-      section { padding: 36px 0; }
-      #tool-search { max-width: none; }
+    /* ————— tool index: ledger ————— */
+    .ledger-controls { display: flex; flex-wrap: wrap; gap: 0; border: 1px solid var(--rule-dark); margin-bottom: 0; }
+    .ledger-controls input {
+      flex: 1 1 200px; min-width: 180px;
+      border: 0; border-right: 1px solid var(--rule-dark);
+      background: var(--paper); color: var(--ink);
+      font-family: var(--mono); font-size: 0.8rem;
+      padding: 12px 16px; outline: none;
     }
+    .ledger-controls input::placeholder { color: var(--ink-4); }
+    .ledger-controls input:focus { background: var(--paper-2); }
+    .ledger-controls button {
+      border: 0; border-right: 1px solid var(--rule-dark);
+      background: var(--paper); color: var(--ink-2);
+      font-family: var(--mono); font-size: 0.7rem; font-weight: 700;
+      letter-spacing: 0.1em; text-transform: uppercase;
+      padding: 12px 18px; cursor: pointer;
+    }
+    .ledger-controls button:last-child { border-right: 0; }
+    .ledger-controls button:hover { background: var(--paper-2); }
+    .ledger-controls button[aria-pressed="true"] { background: var(--ink); color: var(--paper); }
+
+    table.ledger { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+    table.ledger tr { border-bottom: 1px solid var(--rule); }
+    table.ledger tr.hide { display: none; }
+    table.ledger td { padding: 9px 14px 9px 0; vertical-align: baseline; }
+    table.ledger td.t { font-family: var(--mono); font-size: 0.78rem; font-weight: 600; white-space: nowrap; }
+    table.ledger td.t::before { content: "— "; color: var(--ink-4); }
+    table.ledger td.d { color: var(--ink-3); }
+    table.ledger td.k { text-align: right; white-space: nowrap; width: 1%; }
+    table.ledger tr:first-child td { border-top: 0; }
+    table.ledger tbody tr:hover { background: var(--paper-2); }
+
+    .tag {
+      display: inline-block;
+      font-family: var(--mono); font-size: 0.6rem; font-weight: 700;
+      letter-spacing: 0.12em; text-transform: uppercase;
+      padding: 2.5px 7px;
+    }
+    .tag.ro   { border: 1px solid var(--ink-3); color: var(--ink-3); }
+    .tag.mut  { background: var(--paper-3); color: var(--ink-2); border: 1px solid var(--rule); }
+    .tag.des  { background: var(--ink); color: var(--paper); }
+    @media (max-width: 720px) {
+      table.ledger td.k { text-align: left; }
+      table.ledger td.d { display: none; } /* keep the ledger scannable on phones */
+    }
+
+    .ledger-foot {
+      display: flex; justify-content: space-between; align-items: baseline;
+      font-family: var(--mono); font-size: 0.7rem; letter-spacing: 0.08em;
+      text-transform: uppercase; color: var(--ink-3);
+      padding: 12px 0 0;
+    }
+
+    /* ————— footer / colophon ————— */
+    footer { background: var(--ink); color: var(--paper); }
+    footer .wrap { padding-top: 40px; padding-bottom: 40px; display: flex; flex-wrap: wrap; gap: 32px; justify-content: space-between; align-items: baseline; }
+    footer .fn { font-family: var(--serif); font-size: 1.3rem; }
+    footer p { margin: 0; font-family: var(--mono); font-size: 0.72rem; line-height: 1.8; color: #a0a09e; max-width: 46ch; }
+    footer a { color: var(--paper); }
+    @media (prefers-color-scheme: dark) { footer p { color: #909090; } }
   </style>
 </head>
 <body>
 
-<header class="hero">
+<div class="topbar">
   <div class="wrap">
-    <h1><span class="pkg">ugnas-mcp</span></h1>
-    <p class="tagline">
-      A <strong>generic</strong> MCP server for <strong>UGREEN NAS</strong> devices running UGOS,
-      talking over <strong>SSH</strong> with SFTP for transfers. Nothing is hard-coded — no fixed
-      IPs, subnets, usernames, or share names. Every target-specific value comes from your config,
-      so the same server works for anyone's NAS.
+    <span>ugnas-mcp / docs</span>
+    <span>UGREEN NAS · UGOS · SSH/SFTP</span>
+    <span>v0.1.1</span>
+  </div>
+</div>
+
+<header class="masthead">
+  <div class="wrap">
+    <h1>ugnas-mcp<span class="cursor">_</span></h1>
+    <p class="dek">
+      A <strong>generic</strong> Model Context Protocol server for <strong>UGREEN NAS</strong>
+      running UGOS, spoken to over <strong>SSH</strong>. Nothing hard-coded — no fixed IPs,
+      subnets, usernames, or share names. Point it at yours.
     </p>
-    <ul class="badges">
-      <li class="badge b-accent">39 tools</li>
-      <li class="badge">TypeScript · ESM</li>
-      <li class="badge">Node ≥ 20</li>
-      <li class="badge">stdio + HTTP transport</li>
-      <li class="badge">MIT license</li>
-    </ul>
-    <p class="tagline" style="margin-bottom:0">
-      <a href="#safety">Safety model ↓</a> &nbsp;·&nbsp;
-      <a href="#tools">All 39 tools ↓</a> &nbsp;·&nbsp;
-      <a href="#config">Configuration ↓</a>
-    </p>
+    <dl class="specs">
+      <div><dt>Tools</dt><dd>39</dd></div>
+      <div><dt>Runtime</dt><dd>Node ≥ 20</dd></div>
+      <div><dt>Language</dt><dd>TypeScript · ESM</dd></div>
+      <div><dt>Transports</dt><dd>stdio · HTTP</dd></div>
+      <div><dt>Safety</dt><dd>dry-run gate</dd></div>
+      <div><dt>License</dt><dd>MIT</dd></div>
+    </dl>
   </div>
 </header>
 
 <main>
 
-  <!-- ======================================================= Features -->
+  <!-- ============================================== 01 -->
   <section id="features">
     <div class="wrap">
-      <h2>What it does</h2>
-      <p class="lead">
-        Organized the way a NAS owner actually thinks about daily operations — five tool groups,
-        one module per group in the source, each taking the same service context.
-      </p>
-      <div class="grid">
-        <div class="card">
-          <span class="icon">🩺</span>
-          <h3>Connection &amp; system</h3>
-          <p>Connectivity check, OS/hardware info (CPU, memory, temps, disks), and storage pool
-          health across mdadm RAID, LVM, btrfs, and block devices.</p>
-        </div>
-        <div class="card">
-          <span class="icon">🐳</span>
-          <h3>Docker</h3>
-          <p>Full container lifecycle: list, inspect, logs, start, stop, restart, remove. Images
-          (list/pull/remove), networks (list/inspect/create/remove/connect/disconnect), and
-          <code>docker compose</code> up/down/restart.</p>
-        </div>
-        <div class="card">
-          <span class="icon">📂</span>
-          <h3>Files &amp; data</h3>
-          <p>Browse, measure, and search shares; upload/download over SFTP (chroot-aware);
-          rsync-style sync with a built-in <code>cp</code> fallback; thumbnails rendered with
-          ffmpeg on the NAS.</p>
-        </div>
-        <div class="card">
-          <span class="icon">💾</span>
-          <h3>Backup</h3>
-          <p>Create tar.gz archives on the NAS, list and verify them (checksum + entry count),
-          restore into a destination, and install managed recurring cron jobs — preserving any
-          existing non-managed crontab entries.</p>
-        </div>
-        <div class="card">
-          <span class="icon">🛰️</span>
-          <h3>Networks</h3>
-          <p>Interface inventory with IPv4/IPv6 addresses and scopes, IPv4/IPv6 routing tables,
-          and listening TCP/UDP sockets with the processes bound to them.</p>
-        </div>
-        <div class="card">
-          <span class="icon">🛡️</span>
-          <h3>Dry-run safety</h3>
-          <p>Every mutating tool plans first. You review the exact shell commands it <em>would</em>
-          run, then confirm with a single-use, action-bound, 10-minute token. See
-          <a href="#safety">the safety model</a>.</p>
-        </div>
+      <div class="sec-head">
+        <p class="kicker">Scope</p>
+        <span class="sec-no">01 / 06</span>
       </div>
+      <h2>Five tool groups, one safety model</h2>
+      <p class="lead">
+        Organized the way a NAS owner thinks about daily operations. Every mutating
+        operation plans first; read operations run directly.
+      </p>
+      <table class="blocks">
+        <thead><tr><th>Group</th><th>Covers</th></tr></thead>
+        <tbody>
+          <tr><td>system</td><td><b>Connectivity &amp; system.</b> SSH check, OS/hardware report (CPU, memory, thermals, disks), and storage-pool health across mdadm RAID, LVM, btrfs, and block devices.</td></tr>
+          <tr><td>docker</td><td><b>Containers, images, networks, compose.</b> Full lifecycle: list, inspect, logs, start/stop/restart, remove; image pull/remove; network create/remove/connect/disconnect; <code>compose up/down/restart</code>.</td></tr>
+          <tr><td>files</td><td><b>Shares &amp; data.</b> Browse, measure, search; SFTP upload/download (chroot-aware); rsync-style sync with a built-in <code>cp</code> fallback; ffmpeg thumbnails rendered on the NAS.</td></tr>
+          <tr><td>backup</td><td><b>Archives &amp; schedules.</b> tar.gz creation, listing, verification (checksum + entry count), restore, and managed recurring cron jobs that preserve your existing crontab entries.</td></tr>
+          <tr><td>network</td><td><b>Host networking.</b> Interface inventory with IPv4/IPv6 scopes, both routing tables, and listening TCP/UDP sockets with owning processes.</td></tr>
+        </tbody>
+      </table>
     </div>
   </section>
 
-  <!-- ======================================================= Safety -->
+  <!-- ============================================== 02 -->
   <section id="safety">
     <div class="wrap">
-      <h2>Safety model — dry-run first, then confirm</h2>
+      <div class="sec-head">
+        <p class="kicker">Safety</p>
+        <span class="sec-no">02 / 06</span>
+      </div>
+      <h2>Dry-run first, then confirm</h2>
       <p class="lead">
-        Every <strong>mutating</strong> tool has two phases. Read-only tools never need a token.
-        This makes "copy my data", "pull this image", or "restart that container" reviewable
-        before anything changes.
+        Every mutating tool is a two-phase machine. Nothing destructive happens
+        on the first call — ever.
       </p>
 
-      <div class="flow"><span class="m">┌──────────────────────────────────────────────────────────────────┐
-│  </span><span class="c">MCP client</span><span class="m">      </span><span class="c">ugnas-mcp</span><span class="m">                    </span><span class="c">NAS over SSH</span><span class="m">              │
-└──────────────────────────────────────────────────────────────────┘
+      <figure class="flow">
+        <pre><span class="dim">  caller                    ugnas-mcp                       the NAS
+  ───────                   ─────────                       ───────
 
- 1. files.remove { path: "media/old" }        </span><span class="r">no mutation</span><span class="m">
-       │
-       ▼
-    plan:  rm -rf '</span><span class="c">/volume1/media/old</span><span class="m">'      ──► returns dry-run plan
-       │                                    + confirmationToken
-       ▼                                       (single-use, 10 min)
- 2. review the plan yourself  ──►  approve?
-       │                                   │
-       ▼ no                                ▼ yes
-    do nothing              files.remove { path: …, confirmToken }
-       │                                   │
-       ▼                                   ▼
-    done.                    </span><span class="g">executes exactly the commands</span><span class="m">
-                            </span><span class="g">captured at plan time — verbatim.</span><span class="m">
-                            (args are cross-checked: a token
-                             issued for different arguments
-                             is refused.)</span></div>
+  files.remove</span>
+      <span class="dim">path:</span> "media/old"   <span class="dim">────────►</span>  plan<span class="dim">:</span> <span class="em">rm -rf '/volume1/media/old'</span>
+                              <span class="dim">│</span>               <span class="dim">│</span>  nothing executes
+                              <span class="dim">│</span>               <span class="dim">▼</span>  token: single-use,
+  <span class="em">you review the plan</span>        <span class="dim">│</span>                  action-bound, 10 min
+                              <span class="dim">│</span>
+  decline ───────────────────┘               approve:
+                                               <span class="dim">confirmToken:</span> "…"
+                                                  <span class="dim">│</span>      <span class="dim">▼</span>
+                                                  <span class="dim">└──────►</span> <span class="em">runs the exact commands
+                                                            captured at plan time</span>
+                                                  <span class="dim">│</span>
+                                                  <span class="em">args cross-checked:</span>
+                                                  a token issued for different
+                                                  arguments is <span class="em">refused</span>.</pre>
+        <figcaption>Fig. 1 — the confirmation gate. Read-only tools skip it entirely.</figcaption>
+      </figure>
 
-      <div class="callout">
-        <span class="icon">🔒</span>
-        <p><strong>Injection-proof by construction.</strong> All user-supplied values (paths,
-        container names, image tags) are POSIX-shell-quoted before being interpolated into remote
-        commands. Backup job names are restricted to <code>[A-Za-z0-9._-]</code> and cron expressions
-        are validated as exactly five fields — they end up inside shell scripts and crontab lines.
-        Pinned host-key fingerprints are compared padding-insensitively, so the canonical
-        <code>ssh-keygen -lf</code> output works as-is.</p>
-      </div>
-
-      <div class="callout">
-        <span class="icon">🧾</span>
-        <p><strong>At confirm time, arguments are cross-checked.</strong> The token stores the
-        plan-time payload; if the confirming call's arguments differ, the tool refuses and asks you
-        to re-run for a fresh plan. A stale token can never execute a differently-argued action.</p>
-      </div>
+      <div class="note"><p><b>Injection-proof by construction.</b> Every user value — paths, container names, image tags — passes through POSIX single-quote escaping before it touches a shell. Backup job names are restricted to <code>[A-Za-z0-9._-]</code> and cron expressions validated as exactly five fields, because both end up inside shell scripts and crontab lines.</p></div>
+      <div class="note"><p><b>Root paths are refused outright.</b> <code>files.remove</code> will not plan a deletion of <code>/</code>, a bare share root (<code>/volume1</code>), top-level system directories, or UGOS-managed directories like <code>@docker</code> — it rejects before planning.</p></div>
+      <div class="note"><p><b>Pinned by fingerprint.</b> Optionally pin the SSH host key (<code>hostKeySha256</code>); comparisons are padding-insensitive so the canonical <code>ssh-keygen -lf</code> output works as-is.</p></div>
     </div>
   </section>
 
-  <!-- ======================================================= Architecture -->
+  <!-- ============================================== 03 -->
   <section id="architecture">
     <div class="wrap">
-      <h2>Architecture</h2>
+      <div class="sec-head">
+        <p class="kicker">Structure</p>
+        <span class="sec-no">03 / 06</span>
+      </div>
+      <h2>A small, layered codebase</h2>
       <p class="lead">
-        A small, layered codebase — one module per tool group, a narrow SSH executor interface
-        (so tests run against a fake, no real NAS needed), and a single confirmation service.
+        One module per tool group. A narrow executor interface so the test suite
+        runs against a fake — no NAS required.
       </p>
       <pre class="code"><span class="cm">src/
-├── server.ts          entrypoint: stdio transport + optional stateless HTTP (/mcp, /health)
-├── config.ts          zod-validated config (~/.ugnas-mcp/config.json or UGNAS_* env overrides)
+├── server.ts              entrypoint: stdio + optional stateless HTTP (/mcp, /health)
+├── config.ts              zod-validated config; UGNAS_* env overrides win over the file
 ├── mcp/
-│   ├── createServer.ts    McpServer wrapper
-│   └── toolset.ts         all 39 tool registrations
-├── safety/plan.ts    ConfirmationTokenService — the dry-run/confirm core
+│   ├── createServer.ts     McpServer wrapper
+│   └── toolset.ts          all 39 tool registrations
+├── safety/plan.ts         ConfirmationTokenService — the dry-run/confirm core
 ├── ssh/
-│   ├── sshExecutor.ts     CommandExecutor interface + ssh2-backed SshExecutor
-│   └── shellQuote.ts      shq() POSIX quoting — every user value passes through it
-└── services/         one class per tool group, each takes ServiceContext
-    ├── systemService    status / info / pools (mdadm, LVM, btrfs, lsblk, blkid parsers)
-    ├── dockerService    containers / images / networks / compose
-    ├── fileService      list / usage / find / thumbnail / mkdir / copy / move / remove
-    │                    / upload / download / sync (rsync or cp fallback)
-    ├── backupService    create / list / verify / restore / schedule (managed crontab)
-    ├── networkService   interfaces / routes / ports
-    └── util.ts          planOrExecute, path resolution, output parsers</span></pre>
-
-      <div class="callout">
-        <span class="icon">⚡</span>
-        <p><strong>One SSH round-trip for many reads.</strong> Read-heavy tools batch their
-        commands with <code>###NAME###</code> markers and parse the sections out of a single
-        round-trip — e.g. <code>system.info</code> gathers OS release, CPU, load, memory, uptime,
-        temperatures, disks, and Docker version in one call.</p>
-      </div>
-
-      <div class="callout">
-        <span class="icon">📦</span>
-        <p><strong>UGOS SFTP chroot awareness.</strong> UGOS chroots SFTP to the share root, so an
-        exec path like <code>/volume1/docker/x</code> must be requested over SFTP as
-        <code>/docker/x</code>. The <code>sftpRoot</code> config handles the mapping; thumbnails
-        are fetched via base64-over-exec since <code>/tmp</code> sits outside the chroot.</p>
-      </div>
-
-      <div class="callout">
-        <span class="icon">🐧</span>
-        <p><strong>BusyBox-friendly.</strong> GNU-only flags (<code>ls --time-style</code>,
-        <code>find -printf</code>) are probed once and cached; on BusyBox the file tools fall back
-        to <code>ls -1p</code> and <code>find -exec stat</code> so they keep working either way.</p>
-      </div>
+│   ├── sshExecutor.ts      CommandExecutor interface + ssh2-backed SshExecutor
+│   └── shellQuote.ts       shq() — every user value passes through it
+└── services/              one class per tool group, each takes ServiceContext
+    ├── systemService       status / info / pools
+    ├── dockerService       containers / images / networks / compose
+    ├── fileService         list / usage / find / thumbnail / mkdir / copy / move
+    │                       / remove / upload / download / sync
+    ├── backupService       create / list / verify / restore / schedule
+    ├── networkService      interfaces / routes / ports
+    └── util.ts             planOrExecute, path resolution, output parsers</span></pre>
+      <div class="note"><p><b>One round-trip for many reads.</b> Read-heavy tools batch commands behind <code>###NAME###</code> markers and parse the sections from a single SSH call — <code>system.info</code> gathers OS, CPU, load, memory, uptime, thermals, disks, and the Docker version in one shot.</p></div>
+      <div class="note"><p><b>Chroot-aware SFTP.</b> UGOS chroots SFTP to the share root: exec path <code>/volume1/docker/x</code> becomes SFTP path <code>/docker/x</code>. The <code>sftpRoot</code> config owns the mapping; thumbnails travel via base64-over-exec because <code>/tmp</code> sits outside the chroot.</p></div>
+      <div class="note"><p><b>BusyBox-tolerant.</b> GNU-only flags (<code>ls --time-style</code>, <code>find -printf</code>) are probed once and cached; on BusyBox the file tools fall back to <code>ls -1p</code> and <code>find -exec stat</code> and keep working.</p></div>
     </div>
   </section>
 
-  <!-- ======================================================= Tools -->
+  <!-- ============================================== 04 -->
   <section id="tools">
     <div class="wrap">
-      <h2>All 39 tools</h2>
+      <div class="sec-head">
+        <p class="kicker">Index</p>
+        <span class="sec-no">04 / 06</span>
+      </div>
+      <h2>The complete ledger — 39 tools</h2>
       <p class="lead">
-        <span class="pill ro">read</span> needs no token ·
-        <span class="pill mut">gated</span> plans first, then confirms ·
-        <span class="pill des">destructive</span> gated + warnings in the plan
+        <span class="tag ro">read</span>&nbsp; runs directly &nbsp;
+        <span class="tag mut">gated</span>&nbsp; plans first &nbsp;
+        <span class="tag des">dstr</span>&nbsp; gated, destructive, warned
       </p>
 
-      <div class="toolbar">
+      <div class="ledger-controls">
+        <input id="tool-search" type="search" placeholder="filter the ledger…" aria-label="Filter tools">
         <button class="chip" data-filter="all" aria-pressed="true">All</button>
-        <button class="chip" data-filter="ro" aria-pressed="false">Read-only</button>
-        <button class="chip" data-filter="mut" aria-pressed="false">Mutating</button>
+        <button class="chip" data-filter="ro" aria-pressed="false">Read</button>
+        <button class="chip" data-filter="mut" aria-pressed="false">Gated</button>
         <button class="chip" data-filter="des" aria-pressed="false">Destructive</button>
-        <input id="tool-search" type="search" placeholder="filter tools…" aria-label="Filter tools">
       </div>
 
-      <div class="tools" id="tool-list">
-        <!-- system -->
-        <div class="tool" data-kind="ro"><div class="row"><code>system.status</code><span class="pill ro">read</span></div><div class="desc">SSH connectivity, hostname, kernel, uptime, Docker availability.</div></div>
-        <div class="tool" data-kind="ro"><div class="row"><code>system.info</code><span class="pill ro">read</span></div><div class="desc">OS release, CPU cores, load, memory, temperatures, disks, Docker version.</div></div>
-        <div class="tool" data-kind="ro"><div class="row"><code>system.pools</code><span class="pill ro">read</span></div><div class="desc">mdadm arrays + degradation, LVM, btrfs, block devices, filesystems.</div></div>
-        <!-- docker containers -->
-        <div class="tool" data-kind="ro"><div class="row"><code>docker.containers.list</code><span class="pill ro">read</span></div><div class="desc">Containers with id, name, image, state, status.</div></div>
-        <div class="tool" data-kind="ro"><div class="row"><code>docker.containers.inspect</code><span class="pill ro">read</span></div><div class="desc">Full <code>docker inspect</code> JSON for one container.</div></div>
-        <div class="tool" data-kind="ro"><div class="row"><code>docker.containers.logs</code><span class="pill ro">read</span></div><div class="desc">Recent log lines (tail, default 200).</div></div>
-        <div class="tool" data-kind="mut"><div class="row"><code>docker.containers.start</code><span class="pill mut">gated</span></div><div class="desc">Start a stopped container.</div></div>
-        <div class="tool" data-kind="mut"><div class="row"><code>docker.containers.stop</code><span class="pill mut">gated</span></div><div class="desc">Stop a running container.</div></div>
-        <div class="tool" data-kind="mut"><div class="row"><code>docker.containers.restart</code><span class="pill mut">gated</span></div><div class="desc">Restart a container.</div></div>
-        <div class="tool" data-kind="des"><div class="row"><code>docker.containers.remove</code><span class="pill des">destructive</span></div><div class="desc">Delete a container (optional force / anonymous volumes).</div></div>
-        <!-- docker images -->
-        <div class="tool" data-kind="ro"><div class="row"><code>docker.images.list</code><span class="pill ro">read</span></div><div class="desc">Locally stored images.</div></div>
-        <div class="tool" data-kind="mut"><div class="row"><code>docker.images.pull</code><span class="pill mut">gated</span></div><div class="desc">Pull an image from its registry.</div></div>
-        <div class="tool" data-kind="mut"><div class="row"><code>docker.images.remove</code><span class="pill mut">gated</span></div><div class="desc">Remove a local image.</div></div>
-        <!-- docker networks -->
-        <div class="tool" data-kind="ro"><div class="row"><code>docker.networks.list</code><span class="pill ro">read</span></div><div class="desc">Docker networks.</div></div>
-        <div class="tool" data-kind="ro"><div class="row"><code>docker.networks.inspect</code><span class="pill ro">read</span></div><div class="desc">Network details: subnets, attached containers.</div></div>
-        <div class="tool" data-kind="mut"><div class="row"><code>docker.networks.create</code><span class="pill mut">gated</span></div><div class="desc">Create a network (driver, subnet optional).</div></div>
-        <div class="tool" data-kind="mut"><div class="row"><code>docker.networks.remove</code><span class="pill mut">gated</span></div><div class="desc">Remove a network (fails if containers attached).</div></div>
-        <div class="tool" data-kind="mut"><div class="row"><code>docker.networks.connect</code><span class="pill mut">gated</span></div><div class="desc">Attach a container to a network.</div></div>
-        <div class="tool" data-kind="mut"><div class="row"><code>docker.networks.disconnect</code><span class="pill mut">gated</span></div><div class="desc">Detach a container from a network.</div></div>
-        <div class="tool" data-kind="mut"><div class="row"><code>docker.compose</code><span class="pill mut">gated</span></div><div class="desc"><code>up -d</code> / <code>down</code> / <code>restart</code> for a stack directory.</div></div>
-        <!-- files -->
-        <div class="tool" data-kind="ro"><div class="row"><code>files.list</code><span class="pill ro">read</span></div><div class="desc">Directory listing (name, type, size, owner, modified).</div></div>
-        <div class="tool" data-kind="ro"><div class="row"><code>files.usage</code><span class="pill ro">read</span></div><div class="desc">Disk usage (<code>du</code>), optionally per subdirectory.</div></div>
-        <div class="tool" data-kind="ro"><div class="row"><code>files.find</code><span class="pill ro">read</span></div><div class="desc">Search by name glob and/or extension; path, size, mtime.</div></div>
-        <div class="tool" data-kind="mut"><div class="row"><code>files.thumbnail</code><span class="pill mut">gated</span></div><div class="desc">ffmpeg preview of an image/video frame → local file (write gated).</div></div>
-        <div class="tool" data-kind="mut"><div class="row"><code>files.mkdir</code><span class="pill mut">gated</span></div><div class="desc">Create a directory (parents included).</div></div>
-        <div class="tool" data-kind="mut"><div class="row"><code>files.copy</code><span class="pill mut">gated</span></div><div class="desc">Copy within the NAS (or NAS-to-NAS).</div></div>
-        <div class="tool" data-kind="mut"><div class="row"><code>files.move</code><span class="pill mut">gated</span></div><div class="desc">Move or rename a path.</div></div>
-        <div class="tool" data-kind="des"><div class="row"><code>files.remove</code><span class="pill des">destructive</span></div><div class="desc">Delete a file or directory (recursive by default).</div></div>
-        <div class="tool" data-kind="mut"><div class="row"><code>files.upload</code><span class="pill mut">gated</span></div><div class="desc">SFTP upload, local machine → NAS.</div></div>
-        <div class="tool" data-kind="mut"><div class="row"><code>files.download</code><span class="pill mut">gated</span></div><div class="desc">SFTP download, NAS → local machine.</div></div>
-        <div class="tool" data-kind="mut"><div class="row"><code>files.sync</code><span class="pill mut">gated</span></div><div class="desc">rsync sync with mirror/dry-run; <code>cp -a</code> fallback when rsync is missing.</div></div>
-        <!-- backup -->
-        <div class="tool" data-kind="mut"><div class="row"><code>backup.create</code><span class="pill mut">gated</span></div><div class="desc">Archive a directory into a .tar.gz on the NAS.</div></div>
-        <div class="tool" data-kind="ro"><div class="row"><code>backup.list</code><span class="pill ro">read</span></div><div class="desc">Archives (*.tar.gz, *.tgz, *.tar, *.zip) in a directory.</div></div>
-        <div class="tool" data-kind="ro"><div class="row"><code>backup.verify</code><span class="pill ro">read</span></div><div class="desc">Archive exists, checksum, entry count, sample entries.</div></div>
-        <div class="tool" data-kind="des"><div class="row"><code>backup.restore</code><span class="pill des">destructive</span></div><div class="desc">Extract an archive into a destination (overwrites).</div></div>
-        <div class="tool" data-kind="mut"><div class="row"><code>backup.schedule</code><span class="pill mut">gated</span></div><div class="desc">Managed cron job for recurring backups.</div></div>
-        <!-- network -->
-        <div class="tool" data-kind="ro"><div class="row"><code>network.interfaces</code><span class="pill ro">read</span></div><div class="desc">Interfaces with IPv4/IPv6 addresses and scopes.</div></div>
-        <div class="tool" data-kind="ro"><div class="row"><code>network.routes</code><span class="pill ro">read</span></div><div class="desc">IPv4 and IPv6 routing tables.</div></div>
-        <div class="tool" data-kind="ro"><div class="row"><code>network.ports</code><span class="pill ro">read</span></div><div class="desc">Listening TCP/UDP sockets and owning processes.</div></div>
+      <table class="ledger">
+        <tbody id="tool-rows">
+          <!-- system -->
+          <tr data-kind="ro"><td class="t">system.status</td><td class="d">SSH connectivity, hostname, kernel, uptime, Docker availability.</td><td class="k"><span class="tag ro">read</span></td></tr>
+          <tr data-kind="ro"><td class="t">system.info</td><td class="d">OS release, CPU cores, load, memory, thermals, disks, Docker version.</td><td class="k"><span class="tag ro">read</span></td></tr>
+          <tr data-kind="ro"><td class="t">system.pools</td><td class="d">mdadm arrays + degradation, LVM, btrfs, block devices, filesystems.</td><td class="k"><span class="tag ro">read</span></td></tr>
+          <!-- docker.containers -->
+          <tr data-kind="ro"><td class="t">docker.containers.list</td><td class="d">Containers with id, name, image, state, status.</td><td class="k"><span class="tag ro">read</span></td></tr>
+          <tr data-kind="ro"><td class="t">docker.containers.inspect</td><td class="d">Full <code>docker inspect</code> JSON for one container.</td><td class="k"><span class="tag ro">read</span></td></tr>
+          <tr data-kind="ro"><td class="t">docker.containers.logs</td><td class="d">Recent log lines (tail, default 200).</td><td class="k"><span class="tag ro">read</span></td></tr>
+          <tr data-kind="mut"><td class="t">docker.containers.start</td><td class="d">Start a stopped container.</td><td class="k"><span class="tag mut">gated</span></td></tr>
+          <tr data-kind="mut"><td class="t">docker.containers.stop</td><td class="d">Stop a running container.</td><td class="k"><span class="tag mut">gated</span></td></tr>
+          <tr data-kind="mut"><td class="t">docker.containers.restart</td><td class="d">Restart a container.</td><td class="k"><span class="tag mut">gated</span></td></tr>
+          <tr data-kind="des"><td class="t">docker.containers.remove</td><td class="d">Delete a container (optional force / anonymous volumes).</td><td class="k"><span class="tag des">dstr</span></td></tr>
+          <!-- docker.images -->
+          <tr data-kind="ro"><td class="t">docker.images.list</td><td class="d">Locally stored images.</td><td class="k"><span class="tag ro">read</span></td></tr>
+          <tr data-kind="mut"><td class="t">docker.images.pull</td><td class="d">Pull an image from its registry.</td><td class="k"><span class="tag mut">gated</span></td></tr>
+          <tr data-kind="mut"><td class="t">docker.images.remove</td><td class="d">Remove a local image.</td><td class="k"><span class="tag mut">gated</span></td></tr>
+          <!-- docker.networks -->
+          <tr data-kind="ro"><td class="t">docker.networks.list</td><td class="d">Docker networks.</td><td class="k"><span class="tag ro">read</span></td></tr>
+          <tr data-kind="ro"><td class="t">docker.networks.inspect</td><td class="d">Network details: subnets, attached containers.</td><td class="k"><span class="tag ro">read</span></td></tr>
+          <tr data-kind="mut"><td class="t">docker.networks.create</td><td class="d">Create a network (driver, subnet optional).</td><td class="k"><span class="tag mut">gated</span></td></tr>
+          <tr data-kind="mut"><td class="t">docker.networks.remove</td><td class="d">Remove a network (fails if containers attached).</td><td class="k"><span class="tag mut">gated</span></td></tr>
+          <tr data-kind="mut"><td class="t">docker.networks.connect</td><td class="d">Attach a container to a network.</td><td class="k"><span class="tag mut">gated</span></td></tr>
+          <tr data-kind="mut"><td class="t">docker.networks.disconnect</td><td class="d">Detach a container from a network.</td><td class="k"><span class="tag mut">gated</span></td></tr>
+          <tr data-kind="mut"><td class="t">docker.compose</td><td class="d"><code>up -d</code> / <code>down</code> / <code>restart</code> for a stack directory.</td><td class="k"><span class="tag mut">gated</span></td></tr>
+          <!-- files -->
+          <tr data-kind="ro"><td class="t">files.list</td><td class="d">Directory listing (name, type, size, owner, modified).</td><td class="k"><span class="tag ro">read</span></td></tr>
+          <tr data-kind="ro"><td class="t">files.usage</td><td class="d">Disk usage (<code>du</code>), optionally per subdirectory.</td><td class="k"><span class="tag ro">read</span></td></tr>
+          <tr data-kind="ro"><td class="t">files.find</td><td class="d">Search by name glob and/or extension; path, size, mtime.</td><td class="k"><span class="tag ro">read</span></td></tr>
+          <tr data-kind="mut"><td class="t">files.thumbnail</td><td class="d">ffmpeg preview of an image/video frame → local file (write gated).</td><td class="k"><span class="tag mut">gated</span></td></tr>
+          <tr data-kind="mut"><td class="t">files.mkdir</td><td class="d">Create a directory (parents included).</td><td class="k"><span class="tag mut">gated</span></td></tr>
+          <tr data-kind="mut"><td class="t">files.copy</td><td class="d">Copy within the NAS (or NAS-to-NAS).</td><td class="k"><span class="tag mut">gated</span></td></tr>
+          <tr data-kind="mut"><td class="t">files.move</td><td class="d">Move or rename a path.</td><td class="k"><span class="tag mut">gated</span></td></tr>
+          <tr data-kind="des"><td class="t">files.remove</td><td class="d">Delete a file or directory (recursive by default; root paths refused).</td><td class="k"><span class="tag des">dstr</span></td></tr>
+          <tr data-kind="mut"><td class="t">files.upload</td><td class="d">SFTP upload, local machine → NAS.</td><td class="k"><span class="tag mut">gated</span></td></tr>
+          <tr data-kind="mut"><td class="t">files.download</td><td class="d">SFTP download, NAS → local machine.</td><td class="k"><span class="tag mut">gated</span></td></tr>
+          <tr data-kind="mut"><td class="t">files.sync</td><td class="d">rsync sync with mirror/dry-run; <code>cp -a</code> fallback when rsync is missing.</td><td class="k"><span class="tag mut">gated</span></td></tr>
+          <!-- backup -->
+          <tr data-kind="mut"><td class="t">backup.create</td><td class="d">Archive a directory into a .tar.gz on the NAS.</td><td class="k"><span class="tag mut">gated</span></td></tr>
+          <tr data-kind="ro"><td class="t">backup.list</td><td class="d">Archives (*.tar.gz, *.tgz, *.tar, *.zip) in a directory.</td><td class="k"><span class="tag ro">read</span></td></tr>
+          <tr data-kind="ro"><td class="t">backup.verify</td><td class="d">Archive exists, checksum, entry count, sample entries.</td><td class="k"><span class="tag ro">read</span></td></tr>
+          <tr data-kind="des"><td class="t">backup.restore</td><td class="d">Extract an archive into a destination (overwrites).</td><td class="k"><span class="tag des">dstr</span></td></tr>
+          <tr data-kind="mut"><td class="t">backup.schedule</td><td class="d">Managed cron job for recurring backups.</td><td class="k"><span class="tag mut">gated</span></td></tr>
+          <!-- network -->
+          <tr data-kind="ro"><td class="t">network.interfaces</td><td class="d">Interfaces with IPv4/IPv6 addresses and scopes.</td><td class="k"><span class="tag ro">read</span></td></tr>
+          <tr data-kind="ro"><td class="t">network.routes</td><td class="d">IPv4 and IPv6 routing tables.</td><td class="k"><span class="tag ro">read</span></td></tr>
+          <tr data-kind="ro"><td class="t">network.ports</td><td class="d">Listening TCP/UDP sockets and owning processes.</td><td class="k"><span class="tag ro">read</span></td></tr>
+        </tbody>
+      </table>
+      <div class="ledger-foot">
+        <span id="tool-count">39 / 39 shown</span>
+        <span>ledger is generated from the wiring contract</span>
       </div>
-      <p id="tool-count"></p>
     </div>
   </section>
 
-  <!-- ======================================================= Config -->
+  <!-- ============================================== 05 -->
   <section id="config">
     <div class="wrap">
-      <h2>Configuration</h2>
+      <div class="sec-head">
+        <p class="kicker">Setup</p>
+        <span class="sec-no">05 / 06</span>
+      </div>
+      <h2>Configuration &amp; wiring</h2>
       <p class="lead">
-        The server reads a JSON config from <code>~/.ugnas-mcp/config.json</code> (override with
-        <code>UGNAS_MCP_CONFIG</code>). Environment variables win over the file — useful for CI
-        or secret injection: <code>UGNAS_HOST</code>, <code>UGNAS_PORT</code>,
-        <code>UGNAS_USER</code>, <code>UGNAS_KEY_PATH</code> or
+        The server reads a JSON config from <code>~/.ugnas-mcp/config.json</code>
+        (override with <code>UGNAS_MCP_CONFIG</code>). Environment variables win over
+        the file — useful for CI and secret injection: <code>UGNAS_HOST</code>,
+        <code>UGNAS_PORT</code>, <code>UGNAS_USER</code>, <code>UGNAS_KEY_PATH</code> or
         <code>UGNAS_AUTH_TYPE=password</code> + <code>UGNAS_PASSWORD</code>,
         <code>UGNAS_DEFAULT_SHARE</code>, <code>UGNAS_HOST_KEY_SHA256</code>.
       </p>
-      <pre class="code">{
+
+      <pre class="code"><span class="cm"># ~/.ugnas-mcp/config.json</span>
+{
   "name": "home-nas",
-  "host": "192.168.1.50",
+  "host": "192.168.168.110",
   "port": 22,
   "username": "admin",
   "auth": { "type": "key", "privateKeyPath": "~/.ssh/id_ed25519" },
@@ -477,7 +497,7 @@
   "commandTimeoutMs": 60000
 }</pre>
 
-      <h3>Wiring it into an MCP client (stdio)</h3>
+      <h3>Client wiring (stdio)</h3>
       <pre class="code">{
   "mcpServers": {
     "ugnas": {
@@ -489,42 +509,45 @@
 }</pre>
 
       <h3>Optional HTTP transport</h3>
-      <p class="lead">
-        stdio by default. Set <code>UGNAS_HTTP_PORT</code> to also expose a stateless streamable
-        HTTP transport at <code>/mcp</code> (max 1&nbsp;MiB body) plus <code>/health</code>. It
-        binds to loopback; a non-loopback <code>UGNAS_HTTP_HOST</code> is <strong>refused unless
-        <code>UGNAS_HTTP_ALLOW_REMOTE=1</code></strong> — the endpoint has no authentication, so
-        only opt in behind something that adds auth (reverse proxy, VPN).
+      <p class="lead" style="margin-bottom:20px">
+        stdio by default. Set <code>UGNAS_HTTP_PORT</code> to also expose a stateless
+        streamable HTTP transport at <code>/mcp</code> (1&nbsp;MiB body cap) plus
+        <code>/health</code>. Loopback only, unless <code>UGNAS_HTTP_ALLOW_REMOTE=1</code> —
+        the endpoint carries no authentication, so put a proxy with auth in front if
+        you need it off-box.
       </p>
       <pre class="code">UGNAS_HTTP_HOST=127.0.0.1 UGNAS_HTTP_PORT=4110 node dist/src/server.js
 
-POST http://127.0.0.1:4110/mcp     <span class="cm"># JSON-RPC (stateless)</span>
-GET  http://127.0.0.1:4110/health  <span class="cm"># liveness + target host</span></pre>
+POST 127.0.0.1:4110/mcp      <span class="cm"># JSON-RPC, stateless</span>
+GET  127.0.0.1:4110/health   <span class="cm"># liveness + target host</span></pre>
 
-      <h3>Prerequisites on the NAS</h3>
-      <div class="grid">
-        <div class="card"><h3>SSH</h3><p>Enabled on UGOS via <em>Control Panel → Terminal &amp; SNMP</em>.</p></div>
-        <div class="card"><h3>Docker group</h3><p>The SSH user must be in the <code>docker</code> group; <code>crontab</code> access for scheduled backups.</p></div>
-        <div class="card"><h3>Standard tools</h3><p><code>tar</code>, <code>df</code>, <code>du</code>, <code>ip</code>, <code>ss</code> — all present on UGOS.</p></div>
-        <div class="card"><h3>Optional</h3><p><code>rsync</code> (only <code>files.sync</code>; <code>cp</code> fallback otherwise) and <code>ffmpeg</code> (only <code>files.thumbnail</code>).</p></div>
-      </div>
+      <h3>On the NAS</h3>
+      <div class="note"><p><b>Required.</b> SSH enabled (UGOS: <em>Control Panel → Terminal &amp; SNMP</em>); the SSH user in the <code>docker</code> group; <code>crontab</code> access for scheduled backups; standard tools (<code>tar</code>, <code>df</code>, <code>du</code>, <code>ip</code>, <code>ss</code> — all present on UGOS).</p></div>
+      <div class="note"><p><b>Optional.</b> <code>rsync</code> (only <code>files.sync</code>; the <code>cp -a</code> fallback covers its absence) and <code>ffmpeg</code> (only <code>files.thumbnail</code>).</p></div>
     </div>
   </section>
 
-  <!-- ======================================================= Dev -->
+  <!-- ============================================== 06 -->
   <section id="dev">
     <div class="wrap">
-      <h2>Development</h2>
+      <div class="sec-head">
+        <p class="kicker">Development</p>
+        <span class="sec-no">06 / 06</span>
+      </div>
+      <h2>Build, test, verify</h2>
       <pre class="code">pnpm install
-pnpm typecheck   <span class="cm"># tsc --noEmit</span>
-pnpm test        <span class="cm"># vitest — 35 tests, FakeExecutor, no real NAS needed</span>
+pnpm typecheck    <span class="cm"># tsc --noEmit</span>
+pnpm test         <span class="cm"># vitest — 38 tests, FakeExecutor, no NAS needed</span>
 pnpm build
-pnpm smoke       <span class="cm"># boots the built server, tools/list over stdio</span>
-pnpm smoke:http  <span class="cm"># boots with UGNAS_HTTP_PORT, checks /health + /mcp</span></pre>
+pnpm smoke        <span class="cm"># boots the built server, tools/list over stdio</span>
+pnpm smoke:http   <span class="cm"># boots with UGNAS_HTTP_PORT, checks /health + /mcp</span>
+pnpm integration  <span class="cm"># live-NAS checks (needs a reachable target)</span></pre>
       <p class="lead">
-        Tests cover the confirmation-token safety gate, config loading/validation, shell quoting,
-        rsync gating, the read-parsers, and the service↔tool wiring — the registered tool set is
-        asserted to match the contract exactly, so a dead method or missing registration fails CI.
+        Tests cover the confirmation gate, config validation, shell quoting, rsync
+        gating, the output parsers, and a service↔tool wiring contract — the
+        registered tool set is asserted to match the ledger above exactly, so a
+        dead method or a missing registration fails the build. The suite runs
+        against a <code>FakeExecutor</code>; no NAS is required.
       </p>
     </div>
   </section>
@@ -533,19 +556,20 @@ pnpm smoke:http  <span class="cm"># boots with UGNAS_HTTP_PORT, checks /health +
 
 <footer>
   <div class="wrap">
+    <span class="fn">ugnas-mcp_</span>
     <p>
-      <strong>ugnas-mcp</strong> — MIT license.
-      Source and full README on <a href="https://github.com/">GitHub</a>
-      (replace this link with your repository URL).
-      This page is a single static file — host it on GitHub Pages as-is from <code>docs/index.html</code>.
+      MIT license · validated against a live UGREEN NAS (UGOS 1.20, Debian 12 base, rk3588).
+      Source and full README on <a href="#">GitHub</a> — replace this link with your
+      repository URL. This page is a single static file; host it on GitHub Pages as-is
+      from <code>docs/index.html</code>.
     </p>
   </div>
 </footer>
 
 <script>
-  // Tool explorer: filter chips + live search.
+  // Ledger filter: chips + live search. Vanilla, ~30 lines.
   (function () {
-    var tools = Array.prototype.slice.call(document.querySelectorAll(".tool"));
+    var rows = Array.prototype.slice.call(document.querySelectorAll("#tool-rows tr"));
     var chips = Array.prototype.slice.call(document.querySelectorAll(".chip"));
     var search = document.getElementById("tool-search");
     var count = document.getElementById("tool-count");
@@ -555,14 +579,14 @@ pnpm smoke:http  <span class="cm"># boots with UGNAS_HTTP_PORT, checks /health +
       var filter = active ? active.getAttribute("data-filter") : "all";
       var q = (search.value || "").toLowerCase().trim();
       var shown = 0;
-      tools.forEach(function (tool) {
-        var kind = tool.getAttribute("data-kind");
-        var text = tool.textContent.toLowerCase();
+      rows.forEach(function (row) {
+        var kind = row.getAttribute("data-kind");
+        var text = row.textContent.toLowerCase();
         var visible = (filter === "all" || filter === kind) && (!q || text.indexOf(q) !== -1);
-        tool.classList.toggle("hidden", !visible);
+        row.classList.toggle("hide", !visible);
         if (visible) shown++;
       });
-      count.textContent = shown + " / " + tools.length + " tools shown";
+      count.textContent = shown + " / " + rows.length + " shown";
     }
 
     chips.forEach(function (chip) {
